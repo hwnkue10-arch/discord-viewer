@@ -19,3 +19,7 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Examples / Test files
+examples/
+test_*.js

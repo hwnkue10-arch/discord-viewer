@@ -156,7 +156,12 @@ async function handleRenderRequest(req, res) {
     let rawHtml = '';
 
     if (!targetUrl) {
-      rawHtml = fs.readFileSync(path.join(__dirname, '..', 'examples', 'sample_test.html'), 'utf-8');
+      const samplePath = path.join(__dirname, '..', 'examples', 'sample_test.html');
+      if (fs.existsSync(samplePath)) {
+        rawHtml = fs.readFileSync(samplePath, 'utf-8');
+      } else {
+        rawHtml = '<!DOCTYPE html><html><body style="background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;text-align:center;"><div><h2>🚀 Discord HTML Activity</h2><p style="color:#94a3b8;">디스코드 채팅방에 HTML 파일을 업로드하고 버튼을 눌러주세요.</p></div></body></html>';
+      }
     } else {
       const parsedUrl = new URL(targetUrl);
       const allowedHosts = ['cdn.discordapp.com', 'media.discordapp.net'];
