@@ -5,7 +5,10 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  MessageFlags
+  MessageFlags,
+  SlashCommandBuilder,
+  ContextMenuCommandBuilder,
+  ApplicationCommandType
 } = require('discord.js');
 const { setLatestSession } = require('./server');
 
@@ -17,12 +20,74 @@ const client = new Client({
   ]
 });
 
-client.once('clientReady', () => {
+// 첨부파일 메모리 캐시 (슬래시 커맨드 및 우클릭 실행 시 즉각적인 CDN 링크 조회 보장)
+const attachmentCache = new Map();
+
+// 1. 슬래시 명령어 (/html) 빌더
+const htmlSlashCommand = new SlashCommandBuilder()
+  .setName('html')
+  .setDescription('HTML 파일을 디스코드 액티비티로 즉시 실행합니다.')
+  .addAttachmentOption((option) =>
+    option
+      .setName('file')
+      .setDescription('실행할 .html 파일을 첨부하세요')
+      .setRequired(true)
+  );
+
+// 2. 메시지 우클릭 컨텍스트 메뉴 (앱 -> HTML 파일 실행)
+const htmlContextMenuCommand = new ContextMenuCommandBuilder()
+  .setName('HTML 파일 실행')
+  .setType(ApplicationCommandType.Message);
+
+// 실행 버튼 및 임베드 생성 헬퍼 함수
+function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사용자') {
+  attachmentCache.set(attachment.id, {
+    name: attachment.name,
+    url: attachment.url,
+    size: attachment.size
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`📄 ${attachment.name} 렌더링 준비 완료`)
+    .setDescription(
+      '아래 버튼을 누르면 **디스코드 앱 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 즉시 실행됩니다.'
+    )
+    .addFields(
+      { name: '파일 크기', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
+      { name: '요청자', value: `${uploaderName}`, inline: true }
+    )
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`launch_popup:${messageId}:${attachment.id}`)
+      .setLabel('⚡ 디스코드 내부 팝업으로 즉시 실행')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`launch_web:${messageId}:${attachment.id}`)
+      .setLabel('🌐 인터넷 새 창으로 열기')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
+client.once('clientReady', async () => {
   console.log(`✅ 디스코드 봇 로그인 완료: ${client.user.tag}`);
-  console.log('📂 이제 채널에 .html 파일을 업로드하면 실행 버튼이 자동 생성됩니다.');
+
+  try {
+    console.log('🔄 슬래시 명령어(/html) 및 우클릭 메뉴(HTML 파일 실행) 등록 중...');
+    await client.application.commands.set([htmlSlashCommand, htmlContextMenuCommand]);
+    console.log('✅ 디스코드 명령어 등록 성공! (/html 및 메시지 우클릭 메뉴 사용 가능)');
+  } catch (cmdErr) {
+    console.warn('⚠️ 명령어 등록 중 안내 (권한 확인 필요):', cmdErr.message);
+  }
+
+  console.log('📂 채널 업로드 자동 감지, /html 명령어, 메시지 우클릭 실행이 모두 대기 중입니다.');
 });
 
-// [1단계] 사용자가 .html 파일을 올리면 감지하여 실행 버튼 생성
+// [1단계] 사용자가 채팅창에 .html 파일을 올리면 감지하여 실행 버튼 생성
 client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
@@ -33,43 +98,51 @@ client.on('messageCreate', async (message) => {
     );
     if (!attachment) return;
 
-    const shortMsgId = message.id;
-    const shortAttId = attachment.id;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle(`📄 ${attachment.name} 렌더링 준비 완료`)
-      .setDescription(
-        '아래 버튼을 누르면 **디스코드 앱 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 즉시 실행됩니다.'
-      )
-      .addFields(
-        { name: '파일 크기', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
-        { name: '업로더', value: `${message.author.username}`, inline: true }
-      )
-      .setTimestamp();
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`launch_popup:${shortMsgId}:${shortAttId}`)
-        .setLabel('⚡ 디스코드 내부 팝업으로 즉시 실행')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(`launch_web:${shortMsgId}:${shortAttId}`)
-        .setLabel('🌐 인터넷 새 창으로 열기')
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    await message.reply({
-      embeds: [embed],
-      components: [row]
-    });
+    const payload = buildLaunchPayload(attachment, message.id, message.author.username);
+    await message.reply(payload);
   } catch (error) {
     console.error('❌ 메시지 처리 중 오류:', error);
   }
 });
 
-// [4단계 연동] 버튼 클릭 시 최신 CDN 링크 갱신 후 디스코드 내부 액티비티 팝업 즉시 호출!
+// [2단계] 인터랙션 처리 (슬래시 커맨드, 메시지 우클릭 앱, 실행 버튼)
 client.on('interactionCreate', async (interaction) => {
+  // 1. 슬래시 명령어 (/html) 처리 (나한테만 보이는 Ephemeral 메시지로 전송)
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === 'html') {
+      const file = interaction.options.getAttachment('file');
+      if (!file || !file.name.toLowerCase().endsWith('.html')) {
+        return await interaction.reply({
+          content: '⚠️ `.html` 확장자를 가진 파일만 실행할 수 있습니다.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+      const payload = buildLaunchPayload(file, 'cmd', interaction.user.username);
+      payload.flags = MessageFlags.Ephemeral;
+      return await interaction.reply(payload);
+    }
+  }
+
+  // 2. 메시지 우클릭 컨텍스트 메뉴 (앱 -> HTML 파일 실행) 처리 (나한테만 보이는 Ephemeral 메시지)
+  if (interaction.isMessageContextMenuCommand()) {
+    if (interaction.commandName === 'HTML 파일 실행') {
+      const targetMsg = interaction.targetMessage;
+      const file = targetMsg.attachments.find(
+        (att) => att.name && att.name.toLowerCase().endsWith('.html')
+      );
+      if (!file) {
+        return await interaction.reply({
+          content: '⚠️ 선택한 메시지에 첨부된 `.html` 파일이 없습니다.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+      const payload = buildLaunchPayload(file, targetMsg.id, interaction.user.username);
+      payload.flags = MessageFlags.Ephemeral;
+      return await interaction.reply(payload);
+    }
+  }
+
+  // 3. 버튼 클릭 시 디스코드 액티비티 또는 브라우저 실행
   if (!interaction.isButton()) return;
 
   const isPopup = interaction.customId.startsWith('launch_popup:');
@@ -79,24 +152,42 @@ client.on('interactionCreate', async (interaction) => {
   try {
     const [, messageId, attachmentId] = interaction.customId.split(':');
 
-    // 버튼 클릭 시점에 메시지를 다시 fetch하여 만료 토큰이 갱신된 최신 CDN URL 확보
-    const targetMessage = await interaction.channel.messages.fetch(messageId);
-    const freshAttachment = targetMessage.attachments.get(attachmentId);
+    let freshCdnUrl = null;
+    let freshFileName = null;
 
-    if (!freshAttachment) {
+    // 1) 일반 메시지인 경우 메시지를 다시 fetch하여 만료 토큰이 갱신된 최신 CDN URL 확보
+    if (messageId && messageId !== 'cmd' && interaction.channel) {
+      try {
+        const targetMessage = await interaction.channel.messages.fetch(messageId);
+        const att = targetMessage.attachments.get(attachmentId);
+        if (att) {
+          freshCdnUrl = att.url;
+          freshFileName = att.name;
+        }
+      } catch (fetchErr) {}
+    }
+
+    // 2) 슬래시 커맨드(/html) 또는 캐시된 첨부파일 정보 조회
+    if (!freshCdnUrl) {
+      const cached = attachmentCache.get(attachmentId);
+      if (cached) {
+        freshCdnUrl = cached.url;
+        freshFileName = cached.name;
+      }
+    }
+
+    if (!freshCdnUrl) {
       return await interaction.reply({
-        content: '⚠️ 원본 첨부파일을 찾을 수 없습니다. 메시지가 삭제되었을 수 있습니다.',
+        content: '⚠️ 원본 첨부파일을 찾을 수 없습니다. 메시지가 삭제되었거나 만료되었을 수 있습니다.',
         flags: MessageFlags.Ephemeral
       });
     }
-
-    const freshCdnUrl = freshAttachment.url;
 
     // 액티비티 팝업이 열리자마자 이 파일을 바로 띄울 수 있도록 서버 세션 업데이트
     setLatestSession({
       guildId: interaction.guildId || 'dm',
       channelId: interaction.channelId,
-      fileName: freshAttachment.name,
+      fileName: freshFileName,
       cdnUrl: freshCdnUrl,
       requestedBy: interaction.user.username,
       updatedAt: new Date().toISOString()
@@ -105,7 +196,7 @@ client.on('interactionCreate', async (interaction) => {
     const publicBaseUrl = (
       process.env.PUBLIC_ACTIVITY_URL || `http://localhost:${process.env.PORT || 3000}`
     ).replace(/\/$/, '');
-    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshAttachment.name)}`;
+    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Discord HTML Runner')}`;
 
     // 1) [⚡ 디스코드 내부 팝업으로 즉시 실행] 버튼을 누른 경우 -> 로켓 아이콘 없이 즉시 액티비티 팝업 실행!
     if (isPopup) {
@@ -147,7 +238,7 @@ client.on('interactionCreate', async (interaction) => {
     );
 
     await interaction.reply({
-      content: `✅ **${freshAttachment.name}**의 최신 렌더링 주소가 준비되었습니다! 아래 버튼을 눌러 확인하세요.`,
+      content: `✅ **${freshFileName}**의 최신 렌더링 주소가 준비되었습니다! 아래 버튼을 눌러 확인하세요.`,
       components: [previewRow],
       flags: MessageFlags.Ephemeral
     });
