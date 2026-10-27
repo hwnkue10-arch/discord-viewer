@@ -242,6 +242,16 @@ app.get('/activity_shell.html', handleRenderRequest);
 app.get('/render', handleRenderRequest);
 app.get('/view', handleRenderRequest);
 
+// 검색엔진(구글, 네이버 등) 크롤러 접근 원천 차단
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+});
+
+// 클라우드 호스팅 헬스체크용 엔드포인트
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // 최신 클릭된 파일 세션 메타데이터 조회 API (캐시 방지 헤더 포함)
 app.get('/api/latest-session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
