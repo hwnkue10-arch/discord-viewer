@@ -56,24 +56,68 @@ async function verifyDiscordSignature(rawBody, signature, timestamp, clientPubli
   }
 }
 
-// CSS 내부 상대경로 웹폰트/에셋을 서버리스 프록시 절대경로로 변환
-function resolveCssUrls(cssContent, baseUrl, workerOrigin) {
-  return cssContent.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (match, quote, relUrl) => {
-    relUrl = relUrl.trim();
+// 외부 에셋 및 폰트 인메모리 캐시 (반복 다운로드 방지)
+const assetCache = new Map();
+
+// ArrayBuffer를 Base64 문자열로 변환 (Cloudflare Workers 환경 호환)
+function bufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// CSS 내부 상대경로 웹폰트/에셋을 data: Base64 URI로 완전 인라인화하거나 상대경로 프록시로 변환
+async function resolveCssUrls(cssContent, baseUrl) {
+  const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+  const matches = [...cssContent.matchAll(urlRegex)];
+
+  for (const match of matches) {
+    const fullMatch = match[0];
+    let relUrl = match[2].trim();
+
     if (relUrl.startsWith('data:') || relUrl.startsWith('/api/asset-proxy')) {
-      return match;
+      continue;
     }
+
     try {
       const absUrl = new URL(relUrl, baseUrl).href;
-      return `url("${workerOrigin}/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`;
-    } catch (e) {
-      return match;
-    }
-  });
+
+      // 1. 웹폰트(.woff2, .woff, .ttf)는 data: Base64 URI로 100% 인라인화하여 디스코드 CSP 차단 원천 차단!
+      if (absUrl.endsWith('.woff2') || absUrl.endsWith('.woff') || absUrl.endsWith('.ttf')) {
+        let base64Font = assetCache.get(absUrl);
+        if (!base64Font) {
+          try {
+            const fontRes = await fetch(absUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (fontRes.ok) {
+              const fontBuf = await fontRes.arrayBuffer();
+              let mime = 'font/woff2';
+              if (absUrl.endsWith('.woff')) mime = 'font/woff';
+              else if (absUrl.endsWith('.ttf')) mime = 'font/ttf';
+              base64Font = `data:${mime};base64,${bufferToBase64(fontBuf)}`;
+              assetCache.set(absUrl, base64Font);
+            }
+          } catch (fontErr) {}
+        }
+        if (base64Font) {
+          cssContent = cssContent.replace(fullMatch, () => `url("${base64Font}")`);
+          continue;
+        }
+      }
+
+      // 2. 기타 일반 리소스는 상대경로 프록시(/api/asset-proxy)로 연결 ('self' 도메인 유지)
+      cssContent = cssContent.replace(fullMatch, () => `url("/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`);
+    } catch (e) {}
+  }
+
+  return cssContent;
 }
 
 // 외부 CSS/JS 에셋 다운로드 및 인라인화
-async function processHtmlForDiscordActivity(rawHtml, workerOrigin) {
+async function processHtmlForDiscordActivity(rawHtml) {
   let processed = rawHtml;
 
   // 1. @import 외부 폰트/CSS 인라인화
@@ -86,7 +130,7 @@ async function processHtmlForDiscordActivity(rawHtml, workerOrigin) {
       const res = await fetch(importUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (res.ok) {
         const cssText = await res.text();
-        const resolved = resolveCssUrls(cssText, importUrl, workerOrigin);
+        const resolved = await resolveCssUrls(cssText, importUrl);
         processed = processed.replace(fullTag, () => `/* inlined @import ${importUrl} */\n${resolved}\n`);
       }
     } catch (err) {}
@@ -102,7 +146,7 @@ async function processHtmlForDiscordActivity(rawHtml, workerOrigin) {
       const res = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (res.ok) {
         const cssContent = await res.text();
-        const resolved = resolveCssUrls(cssContent, cssUrl, workerOrigin);
+        const resolved = await resolveCssUrls(cssContent, cssUrl);
         processed = processed.replace(fullTag, () => `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>`);
       }
     } catch (err) {}
@@ -661,8 +705,8 @@ export default {
 
       let rawHtml = await cdnRes.text();
 
-      // 서버리스 에셋 완전 인라인화
-      let finalHtml = await processHtmlForDiscordActivity(rawHtml, workerOrigin);
+      // 서버리스 에셋 완전 인라인화 (웹폰트 Base64 임베딩 포함)
+      let finalHtml = await processHtmlForDiscordActivity(rawHtml);
 
       // CSP 클릭 이벤트 브리지 주입
       finalHtml = bridgeInlineEventHandlers(finalHtml);
