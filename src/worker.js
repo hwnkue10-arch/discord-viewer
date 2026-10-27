@@ -283,10 +283,65 @@ function bridgeInlineEventHandlers(rawHtml) {
   return processed;
 }
 
-// 메모리 세션 캐시 (채널별 및 전역 최근 파일 상태 보존)
+// 메모리 세션 캐시 (폴백용)
 const channelSessions = new Map();
 let lastGlobalSession = null;
 let lastInteractionChannelId = null;
+
+// 세션 저장 헬퍼 (Cloudflare KV + 로컬 메모리)
+async function saveSession(env, sessionData, channelId, userId) {
+  if (channelId) {
+    channelSessions.set(channelId, sessionData);
+    lastInteractionChannelId = channelId;
+  }
+  lastGlobalSession = sessionData;
+
+  if (env && env.SESSIONS) {
+    try {
+      const jsonStr = JSON.stringify(sessionData);
+      const puts = [
+        env.SESSIONS.put('latest', jsonStr, { expirationTtl: 86400 })
+      ];
+      if (channelId) {
+        puts.push(env.SESSIONS.put(`chan:${channelId}`, jsonStr, { expirationTtl: 86400 }));
+      }
+      if (userId) {
+        puts.push(env.SESSIONS.put(`user:${userId}`, jsonStr, { expirationTtl: 86400 }));
+      }
+      await Promise.allSettled(puts);
+    } catch (e) {
+      console.error('[KV saveSession error]', e);
+    }
+  }
+}
+
+// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백)
+async function getSession(env, channelId, userId) {
+  if (env && env.SESSIONS) {
+    try {
+      if (channelId) {
+        const val = await env.SESSIONS.get(`chan:${channelId}`);
+        if (val) return JSON.parse(val);
+      }
+      if (userId) {
+        const val = await env.SESSIONS.get(`user:${userId}`);
+        if (val) return JSON.parse(val);
+      }
+      const latest = await env.SESSIONS.get('latest');
+      if (latest) return JSON.parse(latest);
+    } catch (e) {
+      console.error('[KV getSession error]', e);
+    }
+  }
+
+  if (channelId && channelSessions.has(channelId)) {
+    return channelSessions.get(channelId);
+  }
+  if (lastGlobalSession) {
+    return lastGlobalSession;
+  }
+  return null;
+}
 
 // Discord Interaction 응답 헬퍼 (JSON 형식)
 function jsonResponse(data, status = 200) {
@@ -471,9 +526,9 @@ export default {
         };
 
         const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
-        if (channelId) channelSessions.set(channelId, sessionData);
-        lastGlobalSession = sessionData;
-        lastInteractionChannelId = channelId;
+        const user = interaction.user || (interaction.member && interaction.member.user);
+        const userId = user ? user.id : null;
+        await saveSession(env, sessionData, channelId, userId);
 
         const payload = buildInteractionLaunchPayload(
           normAttachment,
@@ -548,9 +603,9 @@ export default {
         };
 
         const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
-        if (interaction.channel_id) channelSessions.set(interaction.channel_id, sessionData);
-        lastGlobalSession = sessionData;
-        lastInteractionChannelId = interaction.channel_id;
+        const user = interaction.user || (interaction.member && interaction.member.user);
+        const userId = user ? user.id : null;
+        await saveSession(env, sessionData, interaction.channel_id, userId);
 
         const payload = buildInteractionLaunchPayload(
           normAttachment,
@@ -568,8 +623,17 @@ export default {
 
         // 디스코드 액티비티 즉시 팝업 실행 버튼
         if (customId.startsWith('launch_popup:')) {
-          if (interaction.channel_id) {
-            lastInteractionChannelId = interaction.channel_id;
+          const channelId = interaction.channel_id;
+          if (channelId) {
+            lastInteractionChannelId = channelId;
+            if (env && env.SESSIONS) {
+              try {
+                const sess = await env.SESSIONS.get(`chan:${channelId}`);
+                if (sess) {
+                  await env.SESSIONS.put('latest', sess, { expirationTtl: 86400 });
+                }
+              } catch (e) {}
+            }
           }
           return jsonResponse({
             type: 12 // LAUNCH_ACTIVITY
@@ -595,6 +659,10 @@ export default {
                   url: att.url,
                   size: att.size
                 };
+                const user = interaction.user || (interaction.member && interaction.member.user);
+                const userId = user ? user.id : null;
+                await saveSession(env, { cdnUrl: normAtt.url, fileName: normAtt.name }, channelId, userId);
+
                 const newPayload = buildInteractionLaunchPayload(
                   normAtt,
                   msg.id,
@@ -619,45 +687,37 @@ export default {
     let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
     const activityChannelId = url.searchParams.get('channel_id') || lastInteractionChannelId;
 
-    // 1) channel_id 또는 인메모리 세션에서 CDN URL 복원
+    // 1) channel_id 또는 Cloudflare KV 세션에서 CDN URL 복원
     if (!targetUrl) {
-      if (activityChannelId && channelSessions.has(activityChannelId)) {
-        const sess = channelSessions.get(activityChannelId);
+      const sess = await getSession(env, activityChannelId, null);
+      if (sess) {
         targetUrl = sess.cdnUrl;
         fileTitle = sess.fileName;
-      } else if (lastGlobalSession) {
-        targetUrl = lastGlobalSession.cdnUrl;
-        fileTitle = lastGlobalSession.fileName;
       }
     }
 
     // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 HTML 첨부파일 자동 확보!
-    if (!targetUrl && (activityChannelId || env.DISCORD_BOT_TOKEN)) {
-      const chanId = activityChannelId;
-      if (chanId && env.DISCORD_BOT_TOKEN) {
-        try {
-          const res = await fetch(`https://discord.com/api/v10/channels/${chanId}/messages?limit=25`, {
-            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
-          });
-          if (res.ok) {
-            const msgs = await res.json();
-            const msgWithHtml = msgs.find((m) =>
-              (m.attachments || []).some((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'))
-            );
-            if (msgWithHtml) {
-              const att = msgWithHtml.attachments.find((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'));
-              if (att) {
-                targetUrl = att.url;
-                fileTitle = att.filename || att.name;
-                // 세션 캐싱
-                channelSessions.set(chanId, { cdnUrl: att.url, fileName: fileTitle });
-                lastGlobalSession = { cdnUrl: att.url, fileName: fileTitle };
-              }
+    if (!targetUrl && activityChannelId && env.DISCORD_BOT_TOKEN) {
+      try {
+        const res = await fetch(`https://discord.com/api/v10/channels/${activityChannelId}/messages?limit=25`, {
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
+        });
+        if (res.ok) {
+          const msgs = await res.json();
+          const msgWithHtml = msgs.find((m) =>
+            (m.attachments || []).some((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'))
+          );
+          if (msgWithHtml) {
+            const att = msgWithHtml.attachments.find((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'));
+            if (att) {
+              targetUrl = att.url;
+              fileTitle = att.filename || att.name;
+              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null);
             }
           }
-        } catch (e) {
-          console.error('Channel fetch error:', e);
         }
+      } catch (e) {
+        console.error('Channel fetch error:', e);
       }
     }
 
@@ -673,12 +733,15 @@ export default {
     h1 { color: #38bdf8; font-size: 24px; margin-bottom: 8px; }
     p { color: #94a3b8; font-size: 14px; max-width: 480px; line-height: 1.6; }
     .status-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+    .btn { background: #5865f2; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; text-decoration: none; transition: background 0.2s; }
+    .btn:hover { background: #4752c4; }
   </style>
 </head>
 <body>
   <div class="status-badge">● Cloudflare Workers 100% 서버리스 가동 중</div>
   <h1>🚀 Discord HTML Activity Serverless Runner</h1>
   <p>디스코드 채팅방에서 <strong>/html</strong> 명령어를 입력하거나, HTML 파일 메시지를 <strong>[우클릭 → 앱 → HTML 파일 실행]</strong>하면 디스코드 내부 팝업으로 즉시 실행됩니다.</p>
+  <button class="btn" onclick="window.location.reload()">🔄 지금 파일 불러오기 / 새로고침</button>
 </body>
 </html>`;
       return new Response(welcomeHtml, {

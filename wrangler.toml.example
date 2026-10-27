@@ -7,3 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 DISCORD_CLIENT_ID = "your_discord_client_id_here"
 DISCORD_PUBLIC_KEY = "your_discord_public_key_here"
 DISCORD_BOT_TOKEN = "your_discord_bot_token_here"
+
+# (선택) Cloudflare KV를 통한 글로벌 세션 공유
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "your_kv_namespace_id_here"
