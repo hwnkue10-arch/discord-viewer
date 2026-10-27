@@ -637,13 +637,20 @@
     <footer class="border-t border-slate-800 bg-slate-900 py-6 text-center text-xs text-slate-500">
         <p>Intel AI Convergence Project Portfolio Planning Dashboard • Optimized for 5-Person 2-Week Sprint</p>
     </footer>
-
     <script>
         function switchTab(tabId) {
+            // tabId 방어적 정규화: 혹시 모를 괄호나 따옴표, 공백 제거
+            if (typeof tabId === 'string') {
+                tabId = tabId.replace(/[()'"\s]/g, '');
+            }
             const tabs = ['proj1', 'proj2', 'proj3', 'proj4'];
+            if (!tabs.includes(tabId)) {
+                tabId = 'proj1';
+            }
             tabs.forEach(t => {
                 const btn = document.getElementById('tab-' + t);
                 const content = document.getElementById('content-' + t);
+                if (!btn || !content) return;
                 if (t === tabId) {
                     btn.classList.add('active');
                     btn.classList.remove('text-slate-400');
@@ -655,6 +662,7 @@
                 }
             });
         }
+        window.switchTab = switchTab;
 
         window.addEventListener('DOMContentLoaded', () => {
             const radarCtx = document.getElementById('radarChart').getContext('2d');

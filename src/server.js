@@ -343,7 +343,7 @@ function bridgeInlineEventHandlers(rawHtml) {
 
     try {
       // 2. 일반 함수 호출 패턴 (예: myFunction(arg1, arg2))
-      var fnMatch = code.match(/^([a-zA-Z0-9_$.]+)\s*\((.*)\)\s*;?$/);
+      var fnMatch = code.match(/^([a-zA-Z0-9_$.]+)\\s*\\((.*)\\)\\s*;?$/);
       if (fnMatch) {
         var fnName = fnMatch[1];
         var rawArgs = fnMatch[2].trim();
@@ -363,9 +363,13 @@ function bridgeInlineEventHandlers(rawHtml) {
           var args = [];
           if (rawArgs) {
             try {
-              args = rawArgs.split(',').map(function(a) { return JSON.parse(a.trim()); });
+              args = JSON.parse('[' + rawArgs.replace(/'/g, '"') + ']');
             } catch (err) {
-              args = rawArgs.split(',').map(function(a) { return a.trim().replace(/^['"]|['"]$/g, ''); });
+              args = rawArgs.split(',').map(function(a) {
+                var s = a.trim();
+                s = s.replace(/^[\\s('"]+|[\\s)'"]+$/g, '');
+                return s;
+              });
             }
           }
           targetFn.apply(btn, args);
