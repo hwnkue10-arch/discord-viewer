@@ -5,7 +5,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "deploy": "wrangler deploy",
+    "deploy:secret": "wrangler secret put DISCORD_BOT_TOKEN"
   },
   "keywords": [
     "discord",
