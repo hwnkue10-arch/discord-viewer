@@ -1,0 +1,9 @@
+name = "discord-html-activity-bot"
+main = "src/worker.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+DISCORD_CLIENT_ID = "your_discord_client_id_here"
+DISCORD_PUBLIC_KEY = "your_discord_public_key_here"
+DISCORD_BOT_TOKEN = "your_discord_bot_token_here"

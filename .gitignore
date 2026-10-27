@@ -23,3 +23,6 @@ Thumbs.db
 # Examples / Test files
 examples/
 test_*.js
+
+# Cloudflare
+wrangler.toml

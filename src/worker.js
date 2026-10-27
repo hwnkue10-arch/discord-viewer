@@ -239,6 +239,11 @@ function bridgeInlineEventHandlers(rawHtml) {
   return processed;
 }
 
+// 메모리 세션 캐시 (채널별 및 전역 최근 파일 상태 보존)
+const channelSessions = new Map();
+let lastGlobalSession = null;
+let lastInteractionChannelId = null;
+
 // Discord Interaction 응답 헬퍼 (JSON 형식)
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -421,6 +426,11 @@ export default {
           size: attachment.size
         };
 
+        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
+        if (channelId) channelSessions.set(channelId, sessionData);
+        lastGlobalSession = sessionData;
+        lastInteractionChannelId = channelId;
+
         const payload = buildInteractionLaunchPayload(
           normAttachment,
           targetMessage.id,
@@ -493,6 +503,11 @@ export default {
           size: attachment.size
         };
 
+        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
+        if (interaction.channel_id) channelSessions.set(interaction.channel_id, sessionData);
+        lastGlobalSession = sessionData;
+        lastInteractionChannelId = interaction.channel_id;
+
         const payload = buildInteractionLaunchPayload(
           normAttachment,
           resolvedMsg.id,
@@ -509,6 +524,9 @@ export default {
 
         // 디스코드 액티비티 즉시 팝업 실행 버튼
         if (customId.startsWith('launch_popup:')) {
+          if (interaction.channel_id) {
+            lastInteractionChannelId = interaction.channel_id;
+          }
           return jsonResponse({
             type: 12 // LAUNCH_ACTIVITY
           });
@@ -553,11 +571,54 @@ export default {
     }
 
     // 4. 디스코드 액티비티 HTML 실시간 렌더링 (GET / 또는 /view, /activity_shell.html)
-    const targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
-    const fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
+    let targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
+    let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
+    const activityChannelId = url.searchParams.get('channel_id') || lastInteractionChannelId;
+
+    // 1) channel_id 또는 인메모리 세션에서 CDN URL 복원
+    if (!targetUrl) {
+      if (activityChannelId && channelSessions.has(activityChannelId)) {
+        const sess = channelSessions.get(activityChannelId);
+        targetUrl = sess.cdnUrl;
+        fileTitle = sess.fileName;
+      } else if (lastGlobalSession) {
+        targetUrl = lastGlobalSession.cdnUrl;
+        fileTitle = lastGlobalSession.fileName;
+      }
+    }
+
+    // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 HTML 첨부파일 자동 확보!
+    if (!targetUrl && (activityChannelId || env.DISCORD_BOT_TOKEN)) {
+      const chanId = activityChannelId;
+      if (chanId && env.DISCORD_BOT_TOKEN) {
+        try {
+          const res = await fetch(`https://discord.com/api/v10/channels/${chanId}/messages?limit=25`, {
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
+          });
+          if (res.ok) {
+            const msgs = await res.json();
+            const msgWithHtml = msgs.find((m) =>
+              (m.attachments || []).some((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'))
+            );
+            if (msgWithHtml) {
+              const att = msgWithHtml.attachments.find((a) => (a.filename || a.name || '').toLowerCase().endsWith('.html'));
+              if (att) {
+                targetUrl = att.url;
+                fileTitle = att.filename || att.name;
+                // 세션 캐싱
+                channelSessions.set(chanId, { cdnUrl: att.url, fileName: fileTitle });
+                lastGlobalSession = { cdnUrl: att.url, fileName: fileTitle };
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Channel fetch error:', e);
+        }
+      }
+    }
 
     if (!targetUrl) {
-      // 파라미터가 없을 때 안내 화면
+      // 파라미터나 채널 첨부파일이 아예 없을 때의 안내 화면
       const welcomeHtml = `<!DOCTYPE html>
 <html lang="ko">
 <head>
