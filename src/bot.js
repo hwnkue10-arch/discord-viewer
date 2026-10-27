@@ -77,11 +77,19 @@ client.once('clientReady', async () => {
   console.log(`✅ 디스코드 봇 로그인 완료: ${client.user.tag}`);
 
   try {
-    console.log('🔄 슬래시 명령어(/html) 및 우클릭 메뉴(HTML 파일 실행) 등록 중...');
-    await client.application.commands.set([htmlSlashCommand, htmlContextMenuCommand]);
-    console.log('✅ 디스코드 명령어 등록 성공! (/html 및 메시지 우클릭 메뉴 사용 가능)');
+    const existing = await client.application.commands.fetch();
+    const hasHtml = existing.some((c) => c.name === 'html');
+    const hasMenu = existing.some((c) => c.name === 'HTML 파일 실행');
+
+    if (!hasHtml) {
+      await client.application.commands.create(htmlSlashCommand);
+    }
+    if (!hasMenu) {
+      await client.application.commands.create(htmlContextMenuCommand);
+    }
+    console.log('✅ 디스코드 명령어 준비 완료! (/html 및 메시지 우클릭 메뉴 활성화됨)');
   } catch (cmdErr) {
-    console.warn('⚠️ 명령어 등록 중 안내 (권한 확인 필요):', cmdErr.message);
+    console.warn('⚠️ 명령어 확인 중 안내:', cmdErr.message);
   }
 
   console.log('📂 채널 업로드 자동 감지, /html 명령어, 메시지 우클릭 실행이 모두 대기 중입니다.');
