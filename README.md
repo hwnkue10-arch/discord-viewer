@@ -4,6 +4,17 @@
 
 ---
 
+## 🔗 공식 봇 초대 및 설치 링크 (Invite & Install)
+
+아래 링크를 통해 봇을 원하는 서버에 초대하거나, **내 계정에 추가(User Install)**하여 어디서든 사용할 수 있습니다:
+
+👉 **[HTML Runner 추가하기 (공식 링크)](https://discord.com/oauth2/authorize?client_id=1564602208753029191)**
+
+* **내 계정에 추가 (User Install - 강력 추천 ⭐):** 봇이 서버에 없어도 모든 서버, 개인 DM, 단체방에서 마우스 우클릭으로 즉시 사용 가능
+* **서버에 추가 (Guild Install):** 관리자 권한이 있는 서버에 봇을 추가하여 모든 멤버가 함께 사용
+
+---
+
 ## ✨ 핵심 기능 및 특징
 
 * **⚡ 디스코드 내부 즉시 실행 (Native In-App Activity)**
@@ -150,24 +161,15 @@ git push -u origin main
 
 ---
 
-## ☁️ 24시간 무중단 클라우드 배포 (내 컴퓨터 꺼도 작동)
+## ☁️ 24시간 100% 서버리스 배포 (Cloudflare Workers)
 
-내 컴퓨터와 Cloudflare 임시 터널을 계속 켜두지 않고 24시간 가동하려면, 무료 클라우드 호스팅 서비스에 연동할 수 있습니다.
+이 프로젝트는 별도의 상시 구동 서버(PaaS) 없이 **Cloudflare Workers**와 **Workers KV**를 통해 100% 무(無)서버 글로벌 에지 네트워크에서 24시간 가동됩니다.
 
-### 추천 무료 클라우드 플랫폼 (PaaS)
-* **[Render.com](https://render.com/)** (추천: GitHub 저장소 연동 시 `npm start` 자동 실행 및 고정 무료 HTTPS 도메인 제공)
-* **[Railway.app](https://railway.app/)**
-* **[Fly.io](https://fly.io/)**
+* **상시 가동 비용:** 0원 (Cloudflare Workers 무료 플랜)
+* **내 컴퓨터 의존도:** 0% (컴퓨터, 터미널 창을 완전히 닫아도 전 세계 어디서든 365일 상시 작동)
+* **세션 격리 아키텍처:** Cloudflare KV (`SESSIONS`)를 통해 채널별 / 첨부파일 ID별로 엄격하게 세션을 격리하여 타 사용자 간의 프라이버시 침해를 원천 차단합니다.
 
-### Render.com 배포 절차 요약:
-1. Render.com 가입 후 **`New Web Service`** 클릭
-2. GitHub 저장소(`discord-html-activity-bot`) 연결
-3. 설정값 입력:
-   * **Build Command:** `npm install`
-   * **Start Command:** `npm start`
-4. **Environment Variables (환경 변수)** 설정:
-   * `DISCORD_BOT_TOKEN`: 발급받은 봇 토큰
-   * `DISCORD_CLIENT_ID`: 디스코드 앱 클라이언트 ID
-   * `PORT`: `3000`
-   * `PUBLIC_ACTIVITY_URL`: Render에서 발급해주는 고정 HTTPS 주소 (예: `https://discord-html-bot.onrender.com`)
-5. **디스코드 개발자 포털 Activities URL Mappings**의 타깃 주소를 위 Render HTTPS 주소로 변경하면, 내 컴퓨터를 완전히 꺼도 24시간 봇과 액티비티가 작동합니다!
+```bash
+# Cloudflare Workers 배포 명령어
+npx wrangler deploy
+```
