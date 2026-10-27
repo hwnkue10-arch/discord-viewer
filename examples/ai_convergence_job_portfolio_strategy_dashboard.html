@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intel AI 융합 프로젝트: 취업 특화 전략 및 타당성 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;600;700;800&display=swap');
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 620px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 310px;
+            max-height: 380px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        .tab-btn.active {
+            border-color: #3b82f6;
+            background-color: #1e3a8a;
+            color: #93c5fd;
+        }
+    </style>
+</head>
+<body class="custom-scrollbar">
+
+    <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/30">
+                    <i class="fa-solid fa-briefcase text-2xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-teal-400 to-indigo-400">
+                        Intel AI 융합 프로젝트: 취업 포트폴리오 전략 리포트
+                    </h1>
+                    <p class="text-xs text-slate-400">Vision + VLA (LeRobot) + LLM 3-Tier 결합 산업 현장 실전 문제 정의</p>
+                </div>
+            </div>
+            <nav class="flex items-center space-x-2 text-xs font-medium">
+                <a href="#why-fusion" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">기술 융합 명분</a>
+                <a href="#projects" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">산업 후보 4선</a>
+                <a href="#props-guide" class="px-3 py-1.5 rounded-lg bg-blue-900/60 text-blue-300 border border-blue-700/50 hover:bg-blue-800 transition">⚡ 초간단 실물 재료 수급 가이드</a>
+                <a href="#architecture" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">아키텍처</a>
+                <a href="#matrix" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">정량 평가</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-12">
+
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                <div class="absolute -right-2 -bottom-2 opacity-10 text-blue-400 text-7xl">
+                    <i class="fa-solid fa-industry"></i>
+                </div>
+                <div class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">면접관 소통 핵심</div>
+                <div class="text-2xl font-black text-white">산업 현장 Real-Problem</div>
+                <p class="text-xs text-slate-400 mt-2">단순 토이 프로젝트 탈피, 실제 제조/물류 기업의 고통 해결</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                <div class="absolute -right-2 -bottom-2 opacity-10 text-teal-400 text-7xl">
+                    <i class="fa-solid fa-basket-shopping"></i>
+                </div>
+                <div class="text-xs font-semibold text-teal-400 uppercase tracking-wider mb-1">재료 수급 편의성</div>
+                <div class="text-2xl font-black text-white">다이소 / 쿠팡 1시간</div>
+                <p class="text-xs text-slate-400 mt-2">총 예산 1만원 안팎으로 실물 산업 현장 완벽 모사</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                <div class="absolute -right-2 -bottom-2 opacity-10 text-indigo-400 text-7xl">
+                    <i class="fa-solid fa-microchip"></i>
+                </div>
+                <div class="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-1">개발 환경 제약</div>
+                <div class="text-2xl font-black text-white">1x GPU / RTX 3080+</div>
+                <p class="text-xs text-slate-400 mt-2">3-Tier 분리 연동으로 VRAM 10GB 이내 완전 구동</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                <div class="absolute -right-2 -bottom-2 opacity-10 text-amber-400 text-7xl">
+                    <i class="fa-solid fa-users-gear"></i>
+                </div>
+                <div class="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-1">팀 운영 리스크 회피</div>
+                <div class="text-2xl font-black text-white">Day 2 Interface Sync</div>
+                <p class="text-xs text-slate-400 mt-2">5인 역할 명확 분담 & MuJoCo 시뮬레이션 백업 구축</p>
+            </div>
+        </section>
+
+        <section id="why-fusion" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+            <div class="border-b border-slate-800 pb-4">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-puzzle-piece text-blue-400"></i>
+                    면접 답변용: 왜 3가지 기술(Vision + VLA + LLM)이 모두 필요한가?
+                </h2>
+                <p class="text-sm text-slate-300 mt-1">
+                    단일 기술이나 단순 기존 자동화(PLC/고정 스크립트)의 치명적 한계를 지적하고, 융합 아키텍처의 당위성을 완벽히 논증합니다.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="px-2.5 py-1 text-xs font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">기존 고정 자동화의 한계</span>
+                        <i class="fa-solid fa-robot text-rose-400 text-lg"></i>
+                    </div>
+                    <h3 class="text-md font-bold text-white mb-2">스크립트 로봇 & 단순 PLC</h3>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                        부품 위치가 1cm만 틀어지거나 비정형 제품이 들어오면 정지함. 작업 지시서 변경 시 전체 코드를 재작성해야 함.
+                    </p>
+                    <div class="text-xs text-rose-400 bg-rose-950/40 p-2.5 rounded border border-rose-900/50">
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> 문제점: 유연성(Flexibility) 0%
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="px-2.5 py-1 text-xs font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">개별 AI 기술의 한계</span>
+                        <i class="fa-solid fa-eye-slash text-amber-400 text-lg"></i>
+                    </div>
+                    <h3 class="text-md font-bold text-white mb-2">Vision 단독 & LLM 단독</h3>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                        Vision은 '무엇인지'만 알고 물리적 조작을 못 함. LLM은 '고차원 판단'은 잘하나 3D 공간 좌표 및 실시간 이물질을 인식 불가(공간 환각).
+                    </p>
+                    <div class="text-xs text-amber-400 bg-amber-950/40 p-2.5 rounded border border-amber-900/50">
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> 문제점: 단독 연결 불가능
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/80 border border-blue-500/40 rounded-xl p-5 bg-gradient-to-b from-blue-950/30 to-slate-800/80">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="px-2.5 py-1 text-xs font-bold rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">해결책: 3-Tier 융합</span>
+                        <i class="fa-solid fa-circle-check text-blue-400 text-lg"></i>
+                    </div>
+                    <h3 class="text-md font-bold text-white mb-2">Decoupled Physical AI</h3>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                        LLM이 작업 지시서/ERP를 분석하고, Vision이 2D/3D 실시간 좌표와 불량을 검출하며, LeRobot VLA가 미세 위치 보정 파지/조작을 완성.
+                    </p>
+                    <div class="text-xs text-blue-300 bg-blue-900/40 p-2.5 rounded border border-blue-700/50">
+                        <i class="fa-solid fa-star mr-1"></i> 포트폴리오 핵심: 실효성 입증
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="props-guide" class="bg-slate-900/80 border border-teal-500/40 rounded-2xl p-6 shadow-xl space-y-6">
+            <div class="border-b border-slate-800 pb-4 flex flex-col md:flex-row justify-between md:items-center gap-2">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="px-2.5 py-1 text-xs font-bold rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">💡 2주 개발 리스크 제어의 핵심</span>
+                        <span class="px-2.5 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">총 예산: 프로젝트당 5,000원 ~ 15,000원</span>
+                    </div>
+                    <h2 class="text-xl font-bold text-white mt-2 flex items-center gap-2">
+                        <i class="fa-solid fa-cart-shopping text-teal-400"></i>
+                        초단기 당일 수급 가능 실물 물체(Props) 및 산업 치환 매핑 가이드
+                    </h2>
+                    <p class="text-xs text-slate-300 mt-1">
+                        어려운 부품 수급을 기다리지 않고, **집 근처 다이소/쿠팡/편의점**에서 당일 구매하여 산업용 스마트팩토리 현장으로 완벽하게 연출하는 방법입니다.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-blue-500/30 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+                        <span class="font-bold text-blue-400 text-sm">1. 스마트 키팅 코봇</span>
+                        <span class="bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded text-[10px]">다이소 / 철물점</span>
+                    </div>
+                    <div class="space-y-1.5 text-slate-300">
+                        <p class="font-semibold text-white">🛒 수급 타겟 물체:</p>
+                        <ul class="list-disc list-inside space-y-1 text-slate-400">
+                            <li>다이소 M4/M8 나사 & 볼트 셋트 (2,000원)</li>
+                            <li>플라스틱 8칸 분리 수납함 (1,000원)</li>
+                            <li>어린이 블록/기어 모형 (2,000원)</li>
+                        </ul>
+                    </div>
+                    <div class="p-2 bg-slate-900/80 rounded border border-slate-700/80 text-blue-300">
+                        <strong>🏢 면접 스피치 치환:</strong><br>
+                        "자동차 정밀 전자제어장치(ECU) 조립 라인의 비정형 고성능 볼트/소켓 키팅 프로세스를 모사했습니다."
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-teal-500/30 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+                        <span class="font-bold text-teal-400 text-sm">2. 반품 리버스물류</span>
+                        <span class="bg-teal-900/60 text-teal-200 px-2 py-0.5 rounded text-[10px]">택배 박스 / 문구점</span>
+                    </div>
+                    <div class="space-y-1.5 text-slate-300">
+                        <p class="font-semibold text-white">🛒 수급 타겟 물체:</p>
+                        <ul class="list-disc list-inside space-y-1 text-slate-400">
+                            <li>재활용 쿠팡 소형 종이 상자 (0원)</li>
+                            <li>박스 테이프 & 송장 스티커 (1,000원)</li>
+                            <li>커터칼로 구김/손상 가공 (0원)</li>
+                        </ul>
+                    </div>
+                    <div class="p-2 bg-slate-900/80 rounded border border-slate-700/80 text-teal-300">
+                        <strong>🏢 면접 스피치 치환:</strong><br>
+                        "이커머스 풀필먼트 센터의 반품 수거 라인에서 발생하는 비정형 파손 박스 자동 등급 분류 시스템입니다."
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-indigo-500/30 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+                        <span class="font-bold text-indigo-400 text-sm">3. 바이오/약품 검수</span>
+                        <span class="bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded text-[10px]">약국 / 다이소</span>
+                    </div>
+                    <div class="space-y-1.5 text-slate-300">
+                        <p class="font-semibold text-white">🛒 수급 타겟 물체:</p>
+                        <ul class="list-disc list-inside space-y-1 text-slate-400">
+                            <li>비타민C 알약 또는 알약 젤리 (3,000원)</li>
+                            <li>다이소 7일 요일별 약통 (1,000원)</li>
+                            <li>손톱깎이로 일부 알약 깨짐 가공</li>
+                        </ul>
+                    </div>
+                    <div class="p-2 bg-slate-900/80 rounded border border-slate-700/80 text-indigo-300">
+                        <strong>🏢 면접 스피치 치환:</strong><br>
+                        "GMP 규격 제약 공정 및 대형 병원 약제과의 자동 복약 소포장 및 결함 약품 인라인 선별 공정입니다."
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-amber-500/30 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+                        <span class="font-bold text-amber-400 text-sm">4. 커스텀 F&B 음료</span>
+                        <span class="bg-amber-900/60 text-amber-200 px-2 py-0.5 rounded text-[10px]">카페 / 슈퍼마켓</span>
+                    </div>
+                    <div class="space-y-1.5 text-slate-300">
+                        <p class="font-semibold text-white">🛒 수급 타겟 물체:</p>
+                        <ul class="list-disc list-inside space-y-1 text-slate-400">
+                            <li>투명 테이크아웃 PET 컵 (1,000원)</li>
+                            <li>시럽 병 or 소스 용기 (2,000원)</li>
+                            <li>빨대 및 컵 홀더 (500원)</li>
+                        </ul>
+                    </div>
+                    <div class="p-2 bg-slate-900/80 rounded border border-slate-700/80 text-amber-300">
+                        <strong>🏢 면접 스피치 치환:</strong><br>
+                        "무인 스마트 리테일 및 푸드테크 로봇 바텐더의 위생 오염 모니터링 및 가변 맞춤 제조 시스템입니다."
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="projects" class="space-y-6">
+            <div class="border-b border-slate-800 pb-4 flex flex-col md:flex-row justify-between md:items-end gap-2">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-teal-400"></i>
+                        취업 특화 산업용 후보 프로젝트 4선 심층 분석
+                    </h2>
+                    <p class="text-sm text-slate-300 mt-1">실제 기업(스마트팩토리, 물류, 바이오, E-Commerce)에 즉시 제시할 수 있는 현실적 문제 정의입니다.</p>
+                </div>
+                <div class="flex space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                    <button onclick="switchTab('proj1')" id="tab-proj1" class="tab-btn active px-3 py-1.5 rounded-lg font-semibold transition">1. 스마트 키팅</button>
+                    <button onclick="switchTab('proj2')" id="tab-proj2" class="tab-btn px-3 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-white transition">2. 반품 리버스물류</button>
+                    <button onclick="switchTab('proj3')" id="tab-proj3" class="tab-btn px-3 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-white transition">3. 바이오/약품 검수</button>
+                    <button onclick="switchTab('proj4')" id="tab-proj4" class="tab-btn px-3 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-white transition">4. 커스텀 F&B</button>
+                </div>
+            </div>
+
+            <div id="content-proj1" class="bg-slate-900/80 border border-blue-500/40 rounded-2xl p-6 space-y-6">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">최우선 강력 추천 (96점)</span>
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">타겟 기업: 삼성전자, 현대차, 두산로보틱스, 한화</span>
+                        </div>
+                        <h3 class="text-2xl font-black text-white mt-2">프로젝트 1: 비정형 이종 부품 자율 품질검사 및 맞춤형 키팅(Kitting) 코봇</h3>
+                        <p class="text-sm text-slate-300 mt-1">자연어 ERP 작업지시서 해석 + YOLO11 표면 결함/위치 검출 + LeRobot ACT 정밀 적재</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-slate-400">2주 성공 가능성</div>
+                        <div class="text-lg font-bold text-teal-400">95% (데이터 수집 용이)</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-blue-400 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-bullseye"></i> 문제 정의 및 확실한 명분 (Why)
+                            </h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                다품종 소량 생산 공정에서는 작업 지시서가 수시로 변경되고 부품의 놓임 상태(비정형)가 불확실합니다. 기존 로봇은 부품 위치가 조금만 달라져도 픽업 실패를 일으키며, 스크래치 등 비전 불량이 발생했을 때 스스로 작업을 중단하고 대안 부품을 집어 올리지 못합니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-teal-400 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-diagram-project"></i> 기술 파이프라인
+                            </h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                <strong>[LLM]</strong> "A고객용 세트 구성(볼트2개, 기어1개, 단 불량 시 B급 트레이로 격리)" 텍스트 지시 파싱 → 
+                                <strong>[Vision]</strong> YOLO11-Seg로 부품 종 및 표면 결함/스크래치/포즈(2D 좌표) 실시간 식별 → 
+                                <strong>[VLA]</strong> LeRobot ACT가 그리퍼 카메라 피드백을 수신하며 삐뚤어진 부품을 보정 파지하여 키팅 트레이 정위치에 안착.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-indigo-400 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-id-card"></i> 취업 이력서 / 면접 어필 포인트
+                            </h4>
+                            <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                <li>제조/로보틱스 분야 면접관들이 가장 익숙하고 필요로 하는 **실제 스마트팩토리 유즈케이스**</li>
+                                <li>"단순 픽앤플레이스가 아니라 비전 결함 판정 시 **자율 재계획(Replanning) 루프** 구현" 강조 가능</li>
+                                <li>로컬 GPU 상에서 OpenVINO/TensorRT 가속을 적용하여 **검사~동작 연동 100ms 이내** 처리 능력 어필</li>
+                            </ul>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-amber-400 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-clock-rotate-left"></i> 2주 개발 리스크 제어 방안
+                            </h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                소형 볼트/나사/블록 모형을 활용하면 LeRobot Teleoperation 데이터 수집이 매우 용이합니다. 30~40회 에피소드로 ACT 학습이 1시간 내 완료되므로 하드웨어 리스크가 최소화됩니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="content-proj2" class="bg-slate-900/80 border border-teal-500/40 rounded-2xl p-6 space-y-6 hidden">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">물류/커머스 추천 (93점)</span>
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">타겟 기업: 쿠팡, CJ대한통운, 네이버, 포스코DX</span>
+                        </div>
+                        <h3 class="text-2xl font-black text-white mt-2">프로젝트 2: 반품/리버스 물류 비정형 패키지 진단 및 자동 등급 분류 코봇</h3>
+                        <p class="text-sm text-slate-300 mt-1">반품 상자 찌그러짐/바코드 비전 감지 + 약관 기반 반품 환불 등급 판정 + 자율 분리 적재</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-slate-400">2주 성공 가능성</div>
+                        <div class="text-lg font-bold text-teal-400">90% (데이터 확보 수월)</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-teal-400 mb-2">문제 정의 및 확실한 명분 (Why)</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                이커머스 반품 물류센터는 가장 수작업 의존도가 높은 곳입니다. 반품 박스는 찌그러지거나 개봉 흔적이 제각각이어서 기존 고정형 소팅 기계가 작동하지 않으며, 작업자가 일일이 외관을 보고 환불 등급을 매겨 분류하고 있습니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-blue-400 mb-2">기술 파이프라인</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                <strong>[Vision]</strong> MobileSAM / YOLO11로 박스 파손, 개봉 테이프 훼손, 바코드 훼손율 검출 → 
+                                <strong>[LLM]</strong> 커머스 반품 규정 가이드라인 수칙을 참조하여 "A등급(재판매), B등급(리퍼비시), C등급(폐기)" 및 사유 리포트 생성 → 
+                                <strong>[VLA]</strong> LeRobot ACT가 해당 등급의 소팅 컨베이어/바스켓으로 물리 이송.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-indigo-400 mb-2">취업 이력서 / 면접 어필 포인트</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                최근 물류 업계의 최고 화두인 **'Reverse Logistics Automation'**을 직접 다루었다는 점에서 물류 IT 및 스마트 물류 로봇 기업 인터뷰 시 차별화된 스토리텔링이 가능합니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-amber-400 mb-2">2주 구현 팁</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                택배 소형 상자 모형에 구김/테이프 자국을 다양하게 가공하여 30개 남짓의 테스트 샘플 세트만 구성하면 성공적으로 데모 구현이 가능합니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="content-proj3" class="bg-slate-900/80 border border-indigo-500/40 rounded-2xl p-6 space-y-6 hidden">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">바이오/제약 추천 (91점)</span>
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">타겟 기업: 삼성바이오로직스, 셀트리온, 유한양행, 스마트랩</span>
+                        </div>
+                        <h3 class="text-2xl font-black text-white mt-2">프로젝트 3: 제약/바이오 스마트 랩: 처방전 검수 및 불량 알약 자율 소포장 에이전트</h3>
+                        <p class="text-sm text-slate-300 mt-1">처방전 OCR & 병용금기 분석 + 알약 변색/깨짐 검사 + 미세 정밀 적재</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-slate-400">2주 성공 가능성</div>
+                        <div class="text-lg font-bold text-teal-400">92% (정형성 높음)</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-indigo-400 mb-2">문제 정의 및 확실한 명분 (Why)</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                제약 및 스마트 약국 조제 라인에서는 부서지거나 변색된 알약이 조제 봉투에 섞여 들어가는 조제 오류가 인명 사고로 이어집니다. 또한 처방전 변경 시 정밀 피킹 가이드라인을 로봇이 실시간 반영해야 합니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-teal-400 mb-2">기술 파이프라인</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                <strong>[LLM]</strong> 처방전 이미지/텍스트 해석 및 병용금기(DUR) 규칙 사전 점검 → 
+                                <strong>[Vision]</strong> YOLO11로 알약의 깨짐/변색 불량 검출 및 개수 카운팅 → 
+                                <strong>[VLA]</strong> LeRobot 정밀 그리퍼로 정상 알약만 특정 칸에 투입.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-blue-400 mb-2">취업 이력서 / 면접 어필 포인트</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                최근 급성장 중인 **Bio-Lab Automation 및 GMP 규격 자동화** 시장에서 요구하는 고정밀도 AI 제어 경험을 어필할 수 있습니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-amber-400 mb-2">2주 구현 팁</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                실제 약품 대신 알약 모양 비타민/모형을 활용하며, 격자 형태의 약통 트레이를 사용하므로 VLA 정밀도 학습 난이도가 매우 낮아 안정적입니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="content-proj4" class="bg-slate-900/80 border border-amber-500/40 rounded-2xl p-6 space-y-6 hidden">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">F&B/푸드테크 추천 (88점)</span>
+                            <span class="px-2.5 py-1 text-xs font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">타겟 기업: 롯데, SPC, CJ프레시웨이, 푸드테크 스타트업</span>
+                        </div>
+                        <h3 class="text-2xl font-black text-white mt-2">프로젝트 4: 고객 맞춤형 F&B 푸드테크: 위생 이물질 감지 및 주문 가변형 제조 코봇</h3>
+                        <p class="text-sm text-slate-300 mt-1">자연어 커스텀 옵션 대화 + 음료/베이커리 위생 상태 비전 모니터링 + 액체 Pouring/토핑 조작</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-slate-400">2주 성공 가능성</div>
+                        <div class="text-lg font-bold text-amber-400">85% (액체 제어 난이도)</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-amber-400 mb-2">문제 정의 및 확실한 명분 (Why)</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                서비스 로봇 제조 환경에서 잔의 위치가 약간만 달라져도 음료를 흘리거나, 컵 내부 이물질/머리카락 등을 감지하지 못해 위생 사고가 발생하는 문제를 능동 해결.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-teal-400 mb-2">기술 파이프라인</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                <strong>[LLM]</strong> "시럽 빼고 우유 적게" 음성을 파싱해 조제 옵션 결정 → 
+                                <strong>[Vision]</strong> 컵 위치, 잔 내부 오염/이물질 비전 식별 → 
+                                <strong>[VLA]</strong> LeRobot이 시럽 병을 집어 조제 후 안착.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-indigo-400 mb-2">취업 이력서 / 면접 어필 포인트</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                서비스 로봇 및 F&B 자동화 분야에서 가장 대중적이고 직관적인 시연 연출이 가능하여 포트폴리오 영상 제작 시 이점이 큽니다.
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700">
+                            <h4 class="text-sm font-bold text-amber-400 mb-2">2주 구현 팁</h4>
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                실제 액체를 붓는 동작은 흘릴 위험이 있으므로 정형 시럽 용기나 컵을 지정 위치로 이동시키는 Pick-and-Place 동작 위주로 단순화합니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="architecture" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+            <div class="border-b border-slate-800 pb-4">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-network-wired text-indigo-400"></i>
+                    3-Tier Decoupled 시스템 구조 & MLOps 파이프라인
+                </h2>
+                <p class="text-sm text-slate-300 mt-1">
+                    단일 PC(RTX 3080/4080급 1대) 환경에서 VRAM 과부하 없이 3개 AI 기술이 비동기(Asynchronous)로 완벽 연동되는 구동 메커니즘입니다.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div class="bg-slate-800 p-4 rounded-xl border border-blue-500/30">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-blue-400">1. LLM Task Agent</span>
+                        <span class="px-2 py-0.5 rounded bg-blue-900/60 text-blue-200">CPU/NPU</span>
+                    </div>
+                    <div class="text-slate-300 space-y-1">
+                        <p>• Model: Ollama (Qwen2.5-7B-Instruct-INT4)</p>
+                        <p>• Role: 작업 지시서/자연어 해석 & JSON Function Calling 생성</p>
+                        <p>• Latency: ~1.2s (이벤트 발생 시만 개입)</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-4 rounded-xl border border-teal-500/30">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-teal-400">2. Vision Perception</span>
+                        <span class="px-2 py-0.5 rounded bg-teal-900/60 text-teal-200">GPU (2GB VRAM)</span>
+                    </div>
+                    <div class="text-slate-300 space-y-1">
+                        <p>• Model: Ultralytics YOLO11-Seg (OpenVINO IR)</p>
+                        <p>• Role: 표면 결함 판정 + 2D/3D Bounding Box 좌표 전달</p>
+                        <p>• Latency: 15ms (60 FPS 실시간 스트리밍)</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-4 rounded-xl border border-indigo-500/30">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-indigo-400">3. VLA Motion Policy</span>
+                        <span class="px-2 py-0.5 rounded bg-indigo-900/60 text-indigo-200">GPU (3GB VRAM)</span>
+                    </div>
+                    <div class="text-slate-300 space-y-1">
+                        <p>• Model: LeRobot ACT Policy (PyTorch CUDA)</p>
+                        <p>• Role: 그리퍼 카메라 시각 피드백 기반 미세 관절 제어</p>
+                        <p>• Latency: 25ms (50 Action Chunking)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 space-y-2">
+                <div class="text-indigo-400 font-bold mb-1">[비동기 통신 파이프라인 Architecture Flow]</div>
+                <div class="p-2 bg-slate-900 rounded border border-slate-800">
+                    [User/ERP Text/Voice Input] ──(FastAPI/ZeroMQ)──&gt; [LLM Agent: Decision Node] ──(JSON Target Specs)──&gt;<br>
+                    [USB Overhead Camera] ──(OpenCV/YOLO11)──&gt; [Vision Node: Defect &amp; Coordinates] ──(Filtered Targets)──&gt;<br>
+                    [LeRobot ACT Engine] &lt;──(Gripper Cam + Joint States)── [SO-100 Robot Arm] ──(Pick &amp; Sort Action)
+                </div>
+            </div>
+        </section>
+
+        <section id="matrix" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-8">
+            <div class="border-b border-slate-800 pb-4">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-chart-column text-teal-400"></i>
+                    후보군 정량 평가 & 하드웨어 리소스 타당성 분석
+                </h2>
+                <p class="text-sm text-slate-300 mt-1">
+                    취업 포트폴리오 가치, 2주 성공 가능성, 데모 임팩트를 종합 비교하고, 단일 GPU 환경의 메모리 병목을 사전에 차단합니다.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                <div class="bg-slate-950 rounded-xl p-5 border border-slate-800">
+                    <h3 class="text-sm font-bold text-white mb-3 text-center">4대 프로젝트 포트폴리오 역량 비교 (Radar Chart)</h3>
+                    <div class="chart-container">
+                        <canvas id="radarChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-950 rounded-xl p-5 border border-slate-800">
+                    <h3 class="text-sm font-bold text-white mb-3 text-center">단일 PC (RTX 3080 10GB) 메모리 및 지연시간 분배</h3>
+                    <div class="chart-container">
+                        <canvas id="resourceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="sprint" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+            <div class="border-b border-slate-800 pb-4">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-users-viewfinder text-blue-400"></i>
+                    5인 팀 역할 분담 & 2주 애자일 개발 로드맵
+                </h2>
+                <p class="text-sm text-slate-300 mt-1">
+                    기술 스택의 선조율을 통해 Day 2에 API 규격을 동결하고, 5명이 병렬로 개발할 수 있도록 설계되었습니다.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-blue-500/30">
+                    <div class="font-bold text-blue-400 mb-1">Member 1: System Lead</div>
+                    <div class="text-white font-semibold mb-2">FastAPI / Dashboard</div>
+                    <p class="text-slate-400">전체 메시지 버스 구축, 비동기 데이터 흐름 제어, 실시간 웹 UI 대시보드 제작</p>
+                </div>
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-teal-500/30">
+                    <div class="font-bold text-teal-400 mb-1">Member 2: Vision Eng.</div>
+                    <div class="text-white font-semibold mb-2">YOLO11 / OpenVINO</div>
+                    <p class="text-slate-400">부품/상자/알약 결함 데이터셋 커스텀 파인튜닝, OpenVINO IR 변환 및 좌표 파싱</p>
+                </div>
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-indigo-500/30">
+                    <div class="font-bold text-indigo-400 mb-1">Member 3: VLA Robotics</div>
+                    <div class="text-white font-semibold mb-2">LeRobot / ACT Policy</div>
+                    <p class="text-slate-400">Teleoperation 40회 데이터 수집, ACT 정책 학습, 관절/그리퍼 실시간 추론</p>
+                </div>
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-amber-500/30">
+                    <div class="font-bold text-amber-400 mb-1">Member 4: LLM Agent</div>
+                    <div class="text-white font-semibold mb-2">Ollama / Prompt Eng.</div>
+                    <p class="text-slate-400">작업지시서/규정 가이드라인 RAG/프롬프팅, JSON 스키마 기반 Function Call 오케스트레이션</p>
+                </div>
+                <div class="bg-slate-800/90 p-4 rounded-xl border border-rose-500/30">
+                    <div class="font-bold text-rose-400 mb-1">Member 5: Sim & MLOps</div>
+                    <p class="text-white font-semibold mb-2">MuJoCo / QA Evaluator</p>
+                    <p class="text-slate-400">MuJoCo 가상 물리 시뮬레이션 백업 구축, 성공률 벤치마크 테스트 및 시연 리허설</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-950 p-5 rounded-xl border border-slate-800">
+                <h3 class="text-sm font-bold text-white mb-3">2주 타임라인 주요 마일스톤 및 리스크 관리</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-slate-900 p-3.5 rounded-lg border border-slate-800 space-y-1">
+                        <div class="font-bold text-blue-300">1주차: 모듈 독립 개발 및 데이터 파이프라인 완비</div>
+                        <p class="text-slate-400">• Day 1~2: JSON 통신 규격 확정, 다이소/쿠팡 실물 재료 수급 및 가공</p>
+                        <p class="text-slate-400">• Day 3~5: Vision 결함 데이터 300장 파인튜닝, LeRobot 40회 조작 녹화 및 ACT 학습</p>
+                    </div>
+                    <div class="bg-slate-900 p-3.5 rounded-lg border border-slate-800 space-y-1">
+                        <div class="font-bold text-teal-300">2주차: 시스템 결합, 예외 처리 및 시연 리허설</div>
+                        <p class="text-slate-400">• Day 6~9: Vision-LLM-VLA 비동기 통신 통합, 결함 부품 감지 시 재작업 루프 연동</p>
+                        <p class="text-slate-400">• Day 10~14: 50회 연속 구동 정량 성공률 지표 산출, MuJoCo 시뮬레이션 영상/라이브 데모 준비</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="border-t border-slate-800 bg-slate-900 py-6 text-center text-xs text-slate-500">
+        <p>Intel AI Convergence Project Portfolio Planning Dashboard • Optimized for 5-Person 2-Week Sprint</p>
+    </footer>
+
+    <script>
+        function switchTab(tabId) {
+            const tabs = ['proj1', 'proj2', 'proj3', 'proj4'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('tab-' + t);
+                const content = document.getElementById('content-' + t);
+                if (t === tabId) {
+                    btn.classList.add('active');
+                    btn.classList.remove('text-slate-400');
+                    content.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('active');
+                    btn.classList.add('text-slate-400');
+                    content.classList.add('hidden');
+                }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const radarCtx = document.getElementById('radarChart').getContext('2d');
+            new Chart(radarCtx, {
+                type: 'radar',
+                data: {
+                    labels: [
+                        ['Job Market Appeal', '& Industry Relevance'],
+                        ['2-Week Feasibility', '& Easy Props Access'],
+                        ['Why Fusion Clarity', '& Logical Defense'],
+                        ['Demo Impact', '& Visual Appeal'],
+                        ['Technical Depth', '& MLOps Completeness']
+                    ],
+                    datasets: [
+                        {
+                            label: 'Project 1: Smart Kitting',
+                            data: [98, 96, 96, 92, 94],
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                            pointBackgroundColor: '#3b82f6'
+                        },
+                        {
+                            label: 'Project 2: Reverse Logistics',
+                            data: [94, 95, 93, 89, 91],
+                            borderColor: '#14b8a6',
+                            backgroundColor: 'rgba(20, 184, 166, 0.25)',
+                            pointBackgroundColor: '#14b8a6'
+                        },
+                        {
+                            label: 'Project 3: Bio/Pharma Lab',
+                            data: [92, 94, 90, 88, 90],
+                            borderColor: '#6366f1',
+                            backgroundColor: 'rgba(99, 102, 241, 0.25)',
+                            pointBackgroundColor: '#6366f1'
+                        },
+                        {
+                            label: 'Project 4: F&B FoodTech',
+                            data: [82, 90, 84, 95, 80],
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.25)',
+                            pointBackgroundColor: '#f59e0b'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    const item = tooltipItems[0];
+                                    let label = item.chart.data.labels[item.dataIndex];
+                                    if (Array.isArray(label)) {
+                                        return label.join(' ');
+                                    } else {
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        r: {
+                            angleLines: { color: '#374151' },
+                            grid: { color: '#374151' },
+                            pointLabels: { color: '#cbd5e1', font: { size: 10 } },
+                            ticks: { backdropColor: 'transparent', color: '#6b7280' },
+                            suggestedMin: 60,
+                            suggestedMax: 100
+                        }
+                    }
+                }
+            });
+
+            const resCtx = document.getElementById('resourceChart').getContext('2d');
+            new Chart(resCtx, {
+                type: 'bar',
+                data: {
+                    labels: [
+                        ['LLM Agent', '(Ollama Qwen2.5)'],
+                        ['Vision System', '(YOLO11 OpenVINO)'],
+                        ['VLA Control', '(LeRobot ACT CUDA)'],
+                        ['System & UI', '(FastAPI Bus)']
+                    ],
+                    datasets: [
+                        {
+                            label: 'VRAM Usage (GB)',
+                            data: [1.2, 1.8, 2.8, 0.1],
+                            backgroundColor: '#3b82f6'
+                        },
+                        {
+                            label: 'System RAM (GB)',
+                            data: [3.5, 1.0, 1.5, 0.8],
+                            backgroundColor: '#14b8a6'
+                        },
+                        {
+                            label: 'Inference Latency (x10 ms)',
+                            data: [12.0, 1.5, 2.5, 0.5],
+                            backgroundColor: '#6366f1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    const item = tooltipItems[0];
+                                    let label = item.chart.data.labels[item.dataIndex];
+                                    if (Array.isArray(label)) {
+                                        return label.join(' ');
+                                    } else {
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9ca3af', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9ca3af' }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

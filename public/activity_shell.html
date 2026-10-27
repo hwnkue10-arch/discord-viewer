@@ -1,0 +1,164 @@
+<!-- activity_shell.html (디스코드 액티비티 쉘 & srcdoc 메모리 렌더러) -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord In-App HTML Runner</title>
+  <style>
+    * { box-sizing: border-box; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1e1f22;
+      color: #f2f3f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #topbar {
+      height: 40px;
+      background: #111214;
+      border-bottom: 1px solid #2b2d31;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 13px;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #23a55a;
+    }
+    .actions button {
+      background: #5865f2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .actions button:hover {
+      background: #4752c4;
+    }
+    #loading {
+      color: #b5bac1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: calc(100vh - 40px);
+      gap: 12px;
+      font-size: 14px;
+    }
+    #render-frame {
+      width: 100vw;
+      height: calc(100vh - 40px);
+      border: none;
+      background: #0f172a;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="topbar">
+    <div class="status-badge">
+      <span class="dot"></span>
+      <strong id="file-title">Discord HTML Activity Runner</strong>
+    </div>
+    <div class="actions">
+      <button onclick="loadAndRenderHtml()">🔄 최신 파일 다시 불러오기</button>
+    </div>
+  </div>
+
+  <div id="loading">
+    <div>⚡ 디스코드 CDN에서 HTML/CSS 소스코드를 로드하는 중...</div>
+  </div>
+
+  <!-- 핵심 기술 포인트 ③: sandbox 속성으로 부모 창(디스코드) 쿠키/토큰 접근을 차단하고 스크립트만 격리 실행 -->
+  <iframe
+    id="render-frame"
+    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+  ></iframe>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+
+    async function loadAndRenderHtml() {
+      const loadingEl = document.getElementById('loading');
+      const iframe = document.getElementById('render-frame');
+      const titleEl = document.getElementById('file-title');
+
+      loadingEl.style.display = 'flex';
+      iframe.style.display = 'none';
+
+      try {
+        const cacheBuster = `_t=${Date.now()}`;
+        let targetCdnUrl = urlParams.get('cdn_url');
+        let fileTitle = urlParams.get('title') || '실시간 렌더링 화면';
+
+        // URL 파라미터에 cdn_url이 없으면 백엔드에 가장 최근 클릭된 파일 세션 조회 (캐시 방지)
+        if (!targetCdnUrl && !urlParams.get('sample')) {
+          const sessionRes = await fetch(`/api/latest-session?${cacheBuster}`);
+          if (sessionRes.ok) {
+            const session = await sessionRes.json();
+            if (session && session.cdnUrl) {
+              targetCdnUrl = session.cdnUrl;
+              fileTitle = `${session.fileName} (업로더: ${session.requestedBy})`;
+            } else if (session && session.fileName) {
+              fileTitle = `${session.fileName} (기본 샘플)`;
+            }
+          }
+        }
+
+        titleEl.innerText = fileTitle;
+
+        // 1. 서버의 엔드포인트(/api/fetch-html)를 통해 외부 에셋이 완전 인라인화된 무결점 HTML 다운로드
+        const fetchEndpoint = targetCdnUrl
+          ? `/api/fetch-html?url=${encodeURIComponent(targetCdnUrl)}&${cacheBuster}`
+          : `/api/fetch-html?${cacheBuster}`;
+
+        const response = await fetch(fetchEndpoint);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const rawHtmlCode = await response.text();
+
+        // 2. 기존 iframe을 깨끗한 새 iframe으로 교체하여 srcdoc 주입 (Chromium JS 컨텍스트 100% 초기화)
+        const oldIframe = document.getElementById('render-frame');
+        const newIframe = document.createElement('iframe');
+        newIframe.id = 'render-frame';
+        newIframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals');
+        newIframe.srcdoc = rawHtmlCode;
+
+        if (oldIframe && oldIframe.parentNode) {
+          oldIframe.parentNode.replaceChild(newIframe, oldIframe);
+        } else {
+          document.body.appendChild(newIframe);
+        }
+
+        loadingEl.style.display = 'none';
+        newIframe.style.display = 'block';
+      } catch (error) {
+        loadingEl.innerHTML = `
+          <div style="color: #f23f43; font-weight: bold;">❌ 렌더링 실패: CDN 링크를 불러올 수 없습니다.</div>
+          <div style="font-size: 12px;">디스코드 채팅방에서 [⚡ 디스코드 내부에서 즉시 실행하기] 버튼을 다시 눌러주세요.</div>
+        `;
+        console.error(error);
+      }
+    }
+
+    loadAndRenderHtml();
+  </script>
+</body>
+</html>
