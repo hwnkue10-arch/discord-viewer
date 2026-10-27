@@ -283,30 +283,27 @@ function bridgeInlineEventHandlers(rawHtml) {
   return processed;
 }
 
-// 메모리 세션 캐시 (폴백용)
+// 메모리 세션 캐시 (폴백용 - 채널별 격리)
 const channelSessions = new Map();
-let lastGlobalSession = null;
-let lastInteractionChannelId = null;
 
 // 세션 저장 헬퍼 (Cloudflare KV + 로컬 메모리)
-async function saveSession(env, sessionData, channelId, userId) {
+async function saveSession(env, sessionData, channelId, userId, attachmentId) {
   if (channelId) {
     channelSessions.set(channelId, sessionData);
-    lastInteractionChannelId = channelId;
   }
-  lastGlobalSession = sessionData;
 
   if (env && env.SESSIONS) {
     try {
       const jsonStr = JSON.stringify(sessionData);
-      const puts = [
-        env.SESSIONS.put('latest', jsonStr, { expirationTtl: 86400 })
-      ];
+      const puts = [];
       if (channelId) {
         puts.push(env.SESSIONS.put(`chan:${channelId}`, jsonStr, { expirationTtl: 86400 }));
       }
       if (userId) {
         puts.push(env.SESSIONS.put(`user:${userId}`, jsonStr, { expirationTtl: 86400 }));
+      }
+      if (attachmentId) {
+        puts.push(env.SESSIONS.put(`att:${attachmentId}`, jsonStr, { expirationTtl: 86400 }));
       }
       await Promise.allSettled(puts);
     } catch (e) {
@@ -315,7 +312,7 @@ async function saveSession(env, sessionData, channelId, userId) {
   }
 }
 
-// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백)
+// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백 - 채널/유저 엄격 격리)
 async function getSession(env, channelId, userId) {
   if (env && env.SESSIONS) {
     try {
@@ -327,8 +324,6 @@ async function getSession(env, channelId, userId) {
         const val = await env.SESSIONS.get(`user:${userId}`);
         if (val) return JSON.parse(val);
       }
-      const latest = await env.SESSIONS.get('latest');
-      if (latest) return JSON.parse(latest);
     } catch (e) {
       console.error('[KV getSession error]', e);
     }
@@ -336,9 +331,6 @@ async function getSession(env, channelId, userId) {
 
   if (channelId && channelSessions.has(channelId)) {
     return channelSessions.get(channelId);
-  }
-  if (lastGlobalSession) {
-    return lastGlobalSession;
   }
   return null;
 }
@@ -525,10 +517,10 @@ export default {
           size: attachment.size
         };
 
-        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
+        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name, attachmentId: normAttachment.id };
         const user = interaction.user || (interaction.member && interaction.member.user);
         const userId = user ? user.id : null;
-        await saveSession(env, sessionData, channelId, userId);
+        await saveSession(env, sessionData, channelId, userId, normAttachment.id);
 
         const payload = buildInteractionLaunchPayload(
           normAttachment,
@@ -602,10 +594,10 @@ export default {
           size: attachment.size
         };
 
-        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name };
+        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name, attachmentId: normAttachment.id };
         const user = interaction.user || (interaction.member && interaction.member.user);
         const userId = user ? user.id : null;
-        await saveSession(env, sessionData, interaction.channel_id, userId);
+        await saveSession(env, sessionData, interaction.channel_id, userId, normAttachment.id);
 
         const payload = buildInteractionLaunchPayload(
           normAttachment,
@@ -624,16 +616,19 @@ export default {
         // 디스코드 액티비티 즉시 팝업 실행 버튼
         if (customId.startsWith('launch_popup:')) {
           const channelId = interaction.channel_id;
-          if (channelId) {
-            lastInteractionChannelId = channelId;
-            if (env && env.SESSIONS) {
-              try {
-                const sess = await env.SESSIONS.get(`chan:${channelId}`);
-                if (sess) {
-                  await env.SESSIONS.put('latest', sess, { expirationTtl: 86400 });
-                }
-              } catch (e) {}
-            }
+          const user = interaction.user || (interaction.member && interaction.member.user);
+          const userId = user ? user.id : null;
+          const parts = customId.split(':');
+          const attId = parts[2];
+
+          if (attId && env && env.SESSIONS) {
+            try {
+              const attSess = await env.SESSIONS.get(`att:${attId}`);
+              if (attSess) {
+                if (channelId) await env.SESSIONS.put(`chan:${channelId}`, attSess, { expirationTtl: 86400 });
+                if (userId) await env.SESSIONS.put(`user:${userId}`, attSess, { expirationTtl: 86400 });
+              }
+            } catch (e) {}
           }
           return jsonResponse({
             type: 12 // LAUNCH_ACTIVITY
@@ -685,10 +680,10 @@ export default {
     // 4. 디스코드 액티비티 HTML 실시간 렌더링 (GET / 또는 /view, /activity_shell.html)
     let targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
     let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
-    const activityChannelId = url.searchParams.get('channel_id') || lastInteractionChannelId;
+    const activityChannelId = url.searchParams.get('channel_id');
 
-    // 1) channel_id 또는 Cloudflare KV 세션에서 CDN URL 복원
-    if (!targetUrl) {
+    // 1) channel_id 또는 Cloudflare KV 세션에서 CDN URL 복원 (채널 격리)
+    if (!targetUrl && activityChannelId) {
       const sess = await getSession(env, activityChannelId, null);
       if (sess) {
         targetUrl = sess.cdnUrl;
@@ -729,19 +724,29 @@ export default {
   <meta charset="UTF-8">
   <title>Discord HTML Serverless Runner</title>
   <style>
-    body { background: #0b0f19; color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; }
-    h1 { color: #38bdf8; font-size: 24px; margin-bottom: 8px; }
-    p { color: #94a3b8; font-size: 14px; max-width: 480px; line-height: 1.6; }
-    .status-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
-    .btn { background: #5865f2; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; text-decoration: none; transition: background 0.2s; }
+    body { background: #0b0f19; color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 24px; box-sizing: border-box; }
+    .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 32px 24px; max-width: 480px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px); }
+    h1 { color: #38bdf8; font-size: 20px; margin: 12px 0 8px; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+    .status-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+    .guide-box { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 14px; text-align: left; font-size: 13px; color: #cbd5e1; line-height: 1.7; margin-bottom: 18px; }
+    .btn { background: #5865f2; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.2s; display: inline-block; }
     .btn:hover { background: #4752c4; }
   </style>
 </head>
 <body>
-  <div class="status-badge">● Cloudflare Workers 100% 서버리스 가동 중</div>
-  <h1>🚀 Discord HTML Activity Serverless Runner</h1>
-  <p>디스코드 채팅방에서 <strong>/html</strong> 명령어를 입력하거나, HTML 파일 메시지를 <strong>[우클릭 → 앱 → HTML 파일 실행]</strong>하면 디스코드 내부 팝업으로 즉시 실행됩니다.</p>
-  <button class="btn" onclick="window.location.reload()">🔄 지금 파일 불러오기 / 새로고침</button>
+  <div class="card">
+    <div class="status-badge">● HTML Runner 준비 완료</div>
+    <h1>📄 실행할 HTML 파일을 선택해 주세요</h1>
+    <p>현재 채널에서 선택된 HTML 파일이 없습니다.<br>채팅방에서 원하는 파일을 지정하면 이 화면에서 바로 실행됩니다.</p>
+    <div class="guide-box">
+      <strong>실행 방법:</strong><br>
+      1. 채팅창의 HTML 파일 메시지를 <strong>마우스 우클릭</strong><br>
+      2. <strong>[앱]</strong> → <strong>[HTML 파일 실행]</strong> 클릭<br>
+      3. 나타난 메시지에서 <strong>[⚡ 디스코드 내부 팝업으로 즉시 실행]</strong> 클릭!
+    </div>
+    <button class="btn" onclick="window.location.reload()">🔄 다시 확인하기</button>
+  </div>
 </body>
 </html>`;
       return new Response(welcomeHtml, {
