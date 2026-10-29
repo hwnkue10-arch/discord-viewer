@@ -122,7 +122,6 @@ discord-viewer/
 ├── assets/                   # 공식 봇 디자인 자산 (아이콘 및 배너)
 │   ├── bot_icon.jpg          # 1:1 앱 아바타 아이콘
 │   └── bot_banner.jpg        # 16:9 와이드 프로필 배너
-├── examples/                 # 테스트용 샘플 문서 파일 (HTML, PDF, MD, PPTX)
 ├── public/
 │   └── activity_shell.html   # 액티비티 쉘 & 로컬 렌더러
 ├── src/
@@ -136,9 +135,8 @@ discord-viewer/
 ├── scripts/
 │   └── register_commands.js  # 디스코드 API 전역 슬래시 명령어 동기화 스크립트 (npm run register)
 ├── .env.example              # 로컬 개발 환경용 환경변수 템플릿
-├── .env                      # 로컬 실행 환경변수 (Git 미포함, 토큰/키 저장)
-├── wrangler.toml.example     # Cloudflare Workers 설정 템플릿
-├── wrangler.toml             # Cloudflare Workers 배포 환경 설정
+├── wrangler.toml.example     # Cloudflare Workers 배포 환경 설정 템플릿
+├── .gitignore                # Git 추적 제외 설정 (.env, wrangler.toml 등)
 ├── package.json              # 패키지 의존성 및 실행 스크립트 정의
 └── README.md                 # 프로젝트 문서 및 사용 가이드
 ```
@@ -166,8 +164,12 @@ discord-viewer/
 # 1) 프로젝트 루트 폴더(discord-viewer/)에서 의존성 설치
 npm install
 
-# 2) wrangler.toml 환경변수 설정
-# wrangler.toml 파일을 열고 발급받은 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
+# 2) Cloudflare Workers 환경 설정 파일 생성
+# Windows:
+copy wrangler.toml.example wrangler.toml
+# macOS / Linux:
+cp wrangler.toml.example wrangler.toml
+# 생성된 wrangler.toml 파일을 열고 발급받은 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
 
 # 3) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록
 npm run register
