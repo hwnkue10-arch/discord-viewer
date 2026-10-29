@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord In-App HTML Runner</title>
+  <title>Discord In-App Document Viewer</title>
   <style>
     * { box-sizing: border-box; }
     body, html {
@@ -74,7 +74,7 @@
   <div id="topbar">
     <div class="status-badge">
       <span class="dot"></span>
-      <strong id="file-title">Discord HTML Activity Runner</strong>
+      <strong id="file-title">Discord Document Viewer</strong>
     </div>
     <div class="actions">
       <button id="reload-html-btn">🔄 최신 파일 다시 불러오기</button>
@@ -82,7 +82,7 @@
   </div>
 
   <div id="loading">
-    <div>⚡ 디스코드 CDN에서 HTML/CSS 소스코드를 로드하는 중...</div>
+    <div>⚡ 디스코드 CDN에서 문서 데이터를 로드하는 중...</div>
   </div>
 
   <!-- 핵심 기술 포인트 ③: sandbox 속성으로 부모 창(디스코드) 쿠키/토큰 접근을 차단하고 스크립트만 격리 실행 -->

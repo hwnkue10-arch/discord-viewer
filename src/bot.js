@@ -21,13 +21,39 @@ const client = new Client({
   ]
 });
 
+// 지원 포맷 정의 (.html, .pdf, .md, .pptx)
+const SUPPORTED_FORMATS = {
+  html: ['.html', '.htm'],
+  pdf:  ['.pdf'],
+  md:   ['.md', '.markdown'],
+  pptx: ['.pptx']
+};
+
+function getFileFormat(filename) {
+  if (!filename) return null;
+  const lower = filename.toLowerCase().split('?')[0];
+  for (const [format, exts] of Object.entries(SUPPORTED_FORMATS)) {
+    if (exts.some((ext) => lower.endsWith(ext))) return format;
+  }
+  return null;
+}
+
+const FORMAT_META = {
+  html: { icon: '📄', label: 'HTML 웹페이지', color: 0x38bdf8 },
+  pdf:  { icon: '📑', label: 'PDF 문서', color: 0xf43f5e },
+  md:   { icon: '📝', label: 'Markdown 문서', color: 0x10b981 },
+  pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 }
+};
+
 // 첨부파일 메모리 캐시 (슬래시 커맨드 및 우클릭 실행 시 즉각적인 CDN 링크 조회 보장)
 const attachmentCache = new Map();
 
-// 1. 슬래시 명령어 (/html) 빌더: 새 파일 업로드가 아닌, 현재 채팅방의 HTML 파일 자동 감지 또는 특정 메시지 지정!
-const htmlSlashCommand = new SlashCommandBuilder()
-  .setName('html')
-  .setDescription('채팅방에 업로드된 HTML 파일을 찾아 즉시 실행합니다.')
+// 1. 신규 통합 슬래시 명령어 (/view) 빌더: HTML, PDF, MD, PPTX 전 포맷 자동 감지!
+const viewSlashCommand = new SlashCommandBuilder()
+  .setName('view')
+  .setDescription('채팅방에 업로드된 문서(HTML, PDF, MD, PPTX)를 찾아 즉시 엽니다.')
+  .setIntegrationTypes([0, 1]) // 0: Guild Install, 1: User Install
+  .setContexts([0, 1, 2])     // 서버, 봇 DM, 개인/그룹 DM
   .addStringOption((option) =>
     option
       .setName('message')
@@ -35,10 +61,12 @@ const htmlSlashCommand = new SlashCommandBuilder()
       .setRequired(false)
   );
 
-// 2. 메시지 우클릭 컨텍스트 메뉴 (앱 -> HTML 파일 실행)
-const htmlContextMenuCommand = new ContextMenuCommandBuilder()
-  .setName('HTML 파일 실행')
-  .setType(ApplicationCommandType.Message);
+// 2. 통합 메시지 우클릭 컨텍스트 메뉴 (앱 -> 파일 바로보기)
+const viewContextMenuCommand = new ContextMenuCommandBuilder()
+  .setName('파일 바로보기')
+  .setType(ApplicationCommandType.Message)
+  .setIntegrationTypes([0, 1])
+  .setContexts([0, 1, 2]);
 
 // 실행 버튼 및 임베드 생성 헬퍼 함수
 function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사용자') {
@@ -48,13 +76,17 @@ function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사�
     size: attachment.size
   });
 
+  const format = getFileFormat(attachment.name) || 'html';
+  const meta = FORMAT_META[format] || { icon: '📄', label: '문서', color: 0x5865f2 };
+
   const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`📄 ${attachment.name} 렌더링 준비 완료`)
+    .setColor(meta.color)
+    .setTitle(`${meta.icon} ${attachment.name} 열기 준비 완료`)
     .setDescription(
-      '아래 버튼을 누르면 **디스코드 앱 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 즉시 실행됩니다.'
+      `아래 버튼을 누르면 **디스코드 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.`
     )
     .addFields(
+      { name: '파일 형식', value: `${meta.icon} ${meta.label}`, inline: true },
       { name: '파일 크기', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
       { name: '요청자', value: `${uploaderName}`, inline: true }
     )
@@ -77,33 +109,43 @@ function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사�
 client.once('clientReady', async () => {
   console.log(`✅ 디스코드 봇 로그인 완료: ${client.user.tag}`);
 
+  // 봇 상태(Rich Presence) 설정: 알로항 봇처럼 프로필 상단에 표기됨
+  try {
+    client.user.setPresence({
+      activities: [{ name: '/view 로 문서 바로보기', type: 0 }], // Playing 상태
+      status: 'online'
+    });
+  } catch (presenceErr) {
+    console.warn('⚠️ 상태 메시지 설정 알림:', presenceErr.message);
+  }
+
   try {
     const existing = await client.application.commands.fetch();
-    const hasHtml = existing.some((c) => c.name === 'html');
-    const hasMenu = existing.some((c) => c.name === 'HTML 파일 실행');
+    const hasView = existing.some((c) => c.name === 'view');
+    const hasMenu = existing.some((c) => c.name === '파일 바로보기');
 
-    if (!hasHtml) {
-      await client.application.commands.create(htmlSlashCommand);
+    if (!hasView) {
+      await client.application.commands.create(viewSlashCommand);
     }
     if (!hasMenu) {
-      await client.application.commands.create(htmlContextMenuCommand);
+      await client.application.commands.create(viewContextMenuCommand);
     }
-    console.log('✅ 디스코드 명령어 준비 완료! (/html 및 메시지 우클릭 메뉴 활성화됨)');
+    console.log('✅ 디스코드 통합 명령어 준비 완료! (/view 및 메시지 우클릭 [파일 바로보기] 활성화됨)');
   } catch (cmdErr) {
     console.warn('⚠️ 명령어 확인 중 안내:', cmdErr.message);
   }
 
-  console.log('📂 채널 업로드 자동 감지, /html 명령어, 메시지 우클릭 실행이 모두 대기 중입니다.');
+  console.log('📂 HTML, PDF, MD, PPTX 파일 자동 감지 및 /view 명령어가 모두 준비되었습니다.');
 });
 
-// [1단계] 사용자가 채팅창에 .html 파일을 올리면 감지하여 실행 버튼 생성
+// [1단계] 사용자가 채팅창에 지원 파일(.html, .pdf, .md, .pptx)을 올리면 감지하여 실행 버튼 생성
 client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
 
-    // .html 확장자 첨부파일 찾기
+    // 지원 확장자 첨부파일 찾기
     const attachment = message.attachments.find(
-      (att) => att.name && att.name.toLowerCase().endsWith('.html')
+      (att) => att.name && getFileFormat(att.name)
     );
     if (!attachment) return;
 
@@ -116,9 +158,9 @@ client.on('messageCreate', async (message) => {
 
 // [2단계] 인터랙션 처리 (슬래시 커맨드, 메시지 우클릭 앱, 실행 버튼)
 client.on('interactionCreate', async (interaction) => {
-  // 1. 슬래시 명령어 (/html) 처리: 채팅방 최근 HTML 파일 자동 탐색 또는 특정 메시지 지정
+  // 1. 슬래시 명령어 (/view 및 기존 /html 호환) 처리: 채팅방 최근 문서 자동 탐색 또는 특정 메시지 지정
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'html') {
+    if (interaction.commandName === 'view' || interaction.commandName === 'html') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const messageInput = interaction.options.getString('message');
@@ -137,13 +179,13 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // 2) 지정이 없으면 현재 채널 최근 50개 메시지를 검색하여 HTML 파일 탐색
+      // 2) 지정이 없으면 현재 채널 최근 50개 메시지를 검색하여 지원 문서 파일 탐색
       let foundMessages = null;
       if (!targetMessage) {
         try {
           const messages = await interaction.channel.messages.fetch({ limit: 50 });
           foundMessages = messages.filter((m) =>
-            m.attachments.some((att) => att.name && att.name.toLowerCase().endsWith('.html'))
+            m.attachments.some((att) => att.name && getFileFormat(att.name))
           );
         } catch (err) {
           console.error('메시지 히스토리 조회 실패:', err);
@@ -152,9 +194,10 @@ client.on('interactionCreate', async (interaction) => {
         if (!foundMessages || foundMessages.size === 0) {
           return await interaction.editReply({
             content: [
-              '⚠️ **현재 채널의 최근 50개 메시지 중에서 `.html` 첨부파일을 찾지 못했습니다.**',
-              '• 채팅방에 `.html` 파일을 먼저 업로드한 뒤 `/html`을 입력해 보세요.',
-              '• 또는 파일이 있는 메시지를 **[우클릭 → 앱 → HTML 파일 실행]**으로 즉시 열 수 있습니다.'
+              '⚠️ **현재 채널의 최근 50개 메시지 중에서 지원되는 문서 파일을 찾지 못했습니다.**',
+              '• 지원 포맷: `.html`, `.pdf`, `.md`, `.pptx`',
+              '• 채팅방에 문서를 먼저 업로드한 뒤 `/view`를 입력해 보세요.',
+              '• 또는 파일이 있는 메시지를 **[우클릭 → 앱 → 파일 바로보기]**로 즉시 열 수 있습니다.'
             ].join('\n')
           });
         }
@@ -163,26 +206,28 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const attachment = targetMessage.attachments.find(
-        (att) => att.name && att.name.toLowerCase().endsWith('.html')
+        (att) => att.name && getFileFormat(att.name)
       );
       if (!attachment) {
         return await interaction.editReply({
-          content: '⚠️ 선택된 메시지에 `.html` 첨부파일이 없습니다.'
+          content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx)이 없습니다.'
         });
       }
 
       const payload = buildLaunchPayload(attachment, targetMessage.id, targetMessage.author.username);
 
-      // 만약 최근 메시지 중 HTML 파일이 2개 이상 발견되면, 다른 파일도 즉시 고를 수 있는 드롭다운 메뉴 추가!
+      // 만약 최근 메시지 중 지원 파일이 2개 이상 발견되면, 다른 파일도 즉시 고를 수 있는 드롭다운 메뉴 추가!
       if (foundMessages && foundMessages.size > 1) {
         const selectOptions = [];
         foundMessages.forEach((msg) => {
           msg.attachments.forEach((att) => {
-            if (att.name && att.name.toLowerCase().endsWith('.html') && selectOptions.length < 10) {
+            const fmt = getFileFormat(att.name);
+            if (fmt && selectOptions.length < 10) {
+              const meta = FORMAT_META[fmt] || { icon: '📄', label: '문서' };
               selectOptions.push({
-                label: att.name.slice(0, 50),
-                description: `${msg.author.username} • ${(att.size / 1024).toFixed(1)} KB`,
-                value: `select_html:${msg.id}:${att.id}`,
+                label: `${meta.icon} ${att.name}`.slice(0, 50),
+                description: `${meta.label} • ${msg.author.username} • ${(att.size / 1024).toFixed(1)} KB`,
+                value: `select_file:${msg.id}:${att.id}`,
                 default: att.id === attachment.id
               });
             }
@@ -191,8 +236,8 @@ client.on('interactionCreate', async (interaction) => {
 
         if (selectOptions.length > 1) {
           const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('select_recent_html')
-            .setPlaceholder('📂 최근 업로드된 다른 HTML 파일 선택...')
+            .setCustomId('select_recent_file')
+            .setPlaceholder('📂 최근 업로드된 다른 문서 파일 선택...')
             .addOptions(selectOptions);
 
           payload.components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -203,8 +248,11 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 1-2. 최근 HTML 파일 드롭다운 메뉴 선택 시 실시간 버튼/정보 전환
-  if (interaction.isStringSelectMenu() && interaction.customId === 'select_recent_html') {
+  // 1-2. 최근 문서 드롭다운 메뉴 선택 시 실시간 버튼/정보 전환
+  if (
+    interaction.isStringSelectMenu() &&
+    (interaction.customId === 'select_recent_file' || interaction.customId === 'select_recent_html')
+  ) {
     const [, msgId, attId] = interaction.values[0].split(':');
     try {
       const msg = await interaction.channel.messages.fetch(msgId);
@@ -228,16 +276,16 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 2. 메시지 우클릭 컨텍스트 메뉴 (앱 -> HTML 파일 실행) 처리 (나한테만 보이는 Ephemeral 메시지)
+  // 2. 메시지 우클릭 컨텍스트 메뉴 (앱 -> 파일 바로보기) 처리 (나한테만 보이는 Ephemeral 메시지)
   if (interaction.isMessageContextMenuCommand()) {
-    if (interaction.commandName === 'HTML 파일 실행') {
+    if (interaction.commandName === '파일 바로보기' || interaction.commandName === 'HTML 파일 실행') {
       const targetMsg = interaction.targetMessage;
       const file = targetMsg.attachments.find(
-        (att) => att.name && att.name.toLowerCase().endsWith('.html')
+        (att) => att.name && getFileFormat(att.name)
       );
       if (!file) {
         return await interaction.reply({
-          content: '⚠️ 선택한 메시지에 첨부된 `.html` 파일이 없습니다.',
+          content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx)이 없습니다.',
           flags: MessageFlags.Ephemeral
         });
       }
@@ -272,7 +320,7 @@ client.on('interactionCreate', async (interaction) => {
       } catch (fetchErr) {}
     }
 
-    // 2) 슬래시 커맨드(/html) 또는 캐시된 첨부파일 정보 조회
+    // 2) 슬래시 커맨드(/view) 또는 캐시된 첨부파일 정보 조회
     if (!freshCdnUrl) {
       const cached = attachmentCache.get(attachmentId);
       if (cached) {
@@ -301,9 +349,9 @@ client.on('interactionCreate', async (interaction) => {
     const publicBaseUrl = (
       process.env.PUBLIC_ACTIVITY_URL || `http://localhost:${process.env.PORT || 3000}`
     ).replace(/\/$/, '');
-    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Discord HTML Runner')}&_t=${Date.now()}`;
+    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Document Viewer')}&_t=${Date.now()}`;
 
-    // 1) [⚡ 디스코드 내부 팝업으로 즉시 실행] 버튼을 누른 경우 -> 로켓 아이콘 없이 즉시 액티비티 팝업 실행!
+    // 1) [⚡ 디스코드 내부 팝업으로 즉시 실행] 버튼을 누른 경우 -> 액티비티 팝업 실행
     if (isPopup) {
       try {
         if (typeof interaction.launchActivity === 'function') {
@@ -343,7 +391,7 @@ client.on('interactionCreate', async (interaction) => {
     );
 
     await interaction.reply({
-      content: `✅ **${freshFileName}**의 최신 렌더링 주소가 준비되었습니다! 아래 버튼을 눌러 확인하세요.`,
+      content: `✅ **${freshFileName}**의 최신 뷰어 주소가 준비되었습니다! 아래 버튼을 눌러 확인하세요.`,
       components: [previewRow],
       flags: MessageFlags.Ephemeral
     });

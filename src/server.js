@@ -2,6 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const {
+  getFileFormat,
+  renderPdfViewer,
+  renderMarkdownViewer,
+  renderPptxViewer
+} = require('./templates');
 
 const app = express();
 app.use(cors());
@@ -29,6 +35,9 @@ function setLatestSession(sessionData) {
   }
   if (data.instanceId) {
     instanceSessions.set(data.instanceId, data);
+  } else {
+    // 새 파일이 선택되면 기존 인스턴스 세션 캐시를 초기화하여 이전 파일이 뜨는 현상 방지
+    instanceSessions.clear();
   }
 }
 
@@ -105,6 +114,12 @@ const ALLOWED_EXACT_MIMES = new Set([
   'text/xml',
   'application/xhtml+xml',
   'application/pdf',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/font-woff',
   'application/font-woff2',
   'application/x-font-ttf',
@@ -135,6 +150,10 @@ function resolveSafeContentType(rawContentType, assetUrl) {
   else if (pathname.endsWith('.json')) ct = 'application/json; charset=utf-8';
   else if (pathname.endsWith('.svg')) ct = 'image/svg+xml';
   else if (pathname.endsWith('.wasm')) ct = 'application/wasm';
+  else if (pathname.endsWith('.pdf')) ct = 'application/pdf';
+  else if (pathname.endsWith('.pptx')) ct = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  else if (pathname.endsWith('.md') || pathname.endsWith('.markdown')) ct = 'text/markdown; charset=utf-8';
+  else if (pathname.endsWith('.bcmap') || pathname.endsWith('.pfb')) ct = 'application/octet-stream';
 
   const baseMime = ct.split(';')[0].trim();
   const isPrefixAllowed = ALLOWED_MIME_PREFIXES.some((prefix) => baseMime.startsWith(prefix));
@@ -142,7 +161,7 @@ function resolveSafeContentType(rawContentType, assetUrl) {
 
   return {
     allowed: isPrefixAllowed || isExactAllowed,
-    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm)$/i) ? rawContentType : ct
+    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm|pdf|pptx|md|markdown|bcmap|pfb)$/i) ? rawContentType : ct
   };
 }
 
@@ -394,10 +413,13 @@ function buildRuntimeShimScript(discordClientId) {
   // 5. 내장 Discord Embedded App SDK RPC 프로토콜 (외부 CDN 의존성 0개)
   var cid = '${discordClientId || ''}';
   var urlParams = new URLSearchParams(window.location.search);
-  var frameId = urlParams.get('frame_id');
-  var inActivityIframe = (window.self !== window.top) && !!frameId;
+  var frameId = urlParams.get('frame_id') || '';
+  try {
+    if (frameId) window.sessionStorage.setItem('__discord_frame_id', frameId);
+    else frameId = window.sessionStorage.getItem('__discord_frame_id') || '';
+  } catch (e) {}
+  var inActivityIframe = (window.self !== window.top) && (!!frameId || /\\.discordsays\\.com$/i.test(window.location.hostname));
   var rpcSource = (window.parent && window.parent.opener) ? window.parent.opener : window.parent;
-  var rpcOrigin = document.referrer ? (function() { try { return new URL(document.referrer).origin; } catch(e) { return '*'; } })() : '*';
 
   function makeNonce() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -409,33 +431,68 @@ function buildRuntimeShimScript(discordClientId) {
     });
   }
 
-  if (inActivityIframe && rpcSource) {
+  function postRpcMessage(payload) {
     try {
-      // Opcode 0: HANDSHAKE
-      rpcSource.postMessage([0, {
-        v: 1,
-        encoding: 'json',
-        client_id: cid || 'discord-activity',
-        frame_id: frameId,
-        sdk_version: '1.8.0'
-      }], rpcOrigin);
-    } catch ( err ) {}
+      if (rpcSource) rpcSource.postMessage(payload, '*');
+      if (window.top && window.top !== rpcSource && window.top !== window.self) {
+        window.top.postMessage(payload, '*');
+      }
+    } catch (err) {}
+  }
+
+  if (inActivityIframe) {
+    // Opcode 0: HANDSHAKE
+    postRpcMessage([0, {
+      v: 1,
+      encoding: 'json',
+      client_id: cid || 'discord-activity',
+      frame_id: frameId,
+      sdk_version: '1.8.0'
+    }]);
+  }
+
+  function copyLinkWithToast(targetUrl) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(targetUrl).catch(function() {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = targetUrl;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch (e) {}
+
+    var existing = document.getElementById('discord-external-link-toast');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var toast = document.createElement('div');
+    toast.id = 'discord-external-link-toast';
+    toast.style.cssText = 'position:fixed;top:52px;right:10px;z-index:2147483647;background:rgba(15,23,42,0.96);backdrop-filter:blur(8px);border:1px solid rgba(56,189,248,0.45);color:#f8fafc;padding:10px 14px;border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,0.5);max-width:340px;line-height:1.5;';
+    toast.innerHTML = '<div style="font-weight:700;color:#38bdf8;margin-bottom:4px;">🌐 새 창 열기 요청 & 링크 복사 완료!</div><div style="color:#cbd5e1;font-size:11px;word-break:break-all;">디스코드 팝업이 뜨지 않으면 브라우저 주소창에 <b>Ctrl+V</b>로 바로 붙여넣으세요.</div>';
+    (document.body || document.documentElement).appendChild(toast);
+    setTimeout(function() {
+      if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 5000);
   }
 
   function sendOpenExternalLink(targetUrl) {
     return new Promise(function(resolve, reject) {
-      if (!inActivityIframe || !rpcSource) {
+      if (!inActivityIframe) {
         reject(new Error('Not in Discord Activity iframe'));
         return;
       }
       try {
         var nonce = makeNonce();
         // Opcode 1: FRAME (OPEN_EXTERNAL_LINK)
-        rpcSource.postMessage([1, {
+        postRpcMessage([1, {
           cmd: 'OPEN_EXTERNAL_LINK',
           args: { url: targetUrl },
           nonce: nonce
-        }], rpcOrigin);
+        }]);
         resolve();
       } catch (err) {
         reject(err);
@@ -455,8 +512,9 @@ function buildRuntimeShimScript(discordClientId) {
 
   window.__discordOpenExternal = function(targetUrl) {
     if (inActivityIframe) {
+      copyLinkWithToast(targetUrl);
       sendOpenExternalLink(targetUrl).catch(function() {
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        try { window.open(targetUrl, '_blank', 'noopener,noreferrer'); } catch (e) {}
       });
     } else {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
@@ -469,7 +527,7 @@ function buildRuntimeShimScript(discordClientId) {
     var href = a.getAttribute('href');
     if (href && /^https?:/i.test(href) && !href.startsWith('/api/')) {
       var full = abs(href);
-      if (full && new URL(full).origin !== location.origin) {
+      if (full && (new URL(full).origin !== location.origin || a.getAttribute('target') === '_blank')) {
         if (inActivityIframe) {
           e.preventDefault();
           window.__discordOpenExternal(full);
@@ -503,42 +561,130 @@ function buildRuntimeShimScript(discordClientId) {
 </script>`;
 }
 
-// 플로팅 헬퍼 바 생성 (인라인 onclick 제거, target="_blank" 보존 및 addEventListener 바인딩)
+// 플로팅 헬퍼 바 생성 (새 창 버튼 제거, 접기/펼치기 원클릭 토글 버튼 제공)
 function buildHelperBar(fileTitle, directUrl) {
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
   <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${fileTitle}</span>
+  <button id="discord-helper-switch-btn" style="background:#059669;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="채널 내 다른 문서로 즉시 전환">📂 파일 전환</button>
   <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
-  <a id="discord-helper-external-btn" href="${directUrl}" target="_blank" rel="noopener noreferrer" style="background:#0284c7;color:white;text-decoration:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-block;transition:background 0.2s;">🌐 새 창</a>
-  <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:13px;font-weight:bold;cursor:pointer;line-height:1;" title="헬퍼 바 숨기기">✕</button>
+  <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:11px;font-weight:600;cursor:pointer;line-height:1;" title="도구 모음 접기">− 접기</button>
+</div>
+<button id="discord-helper-launcher-btn" style="display:none;position:fixed;top:10px;right:10px;z-index:2147483647;align-items:center;gap:5px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.22);padding:5px 11px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#38bdf8;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.4);cursor:pointer;user-select:none;transition:all 0.2s;" title="도구 모음 열기">
+  <span>📂 파일 도구 ▾</span>
+</button>
+<div id="discord-file-switcher-modal" style="display:none;position:fixed;top:46px;right:10px;z-index:2147483647;background:rgba(15,23,42,0.96);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.18);padding:12px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);width:310px;max-height:420px;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.1);">
+    <strong style="color:#38bdf8;font-size:13px;">📂 채널 내 최근 문서 선택</strong>
+    <button id="discord-switcher-close-btn" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:12px;">✕</button>
+  </div>
+  <div id="discord-switcher-list" style="display:flex;flex-direction:column;gap:6px;">
+    <div style="color:#94a3b8;text-align:center;padding:12px 0;">목록을 불러오는 중...</div>
+  </div>
 </div>
 <script id="discord-helper-bar-script">
 (function() {
   var bar = document.getElementById('discord-activity-helper-bar');
   var refreshBtn = document.getElementById('discord-helper-refresh-btn');
-  var extBtn = document.getElementById('discord-helper-external-btn');
   var closeBtn = document.getElementById('discord-helper-close-btn');
+  var launcherBtn = document.getElementById('discord-helper-launcher-btn');
+  var switchBtn = document.getElementById('discord-helper-switch-btn');
+  var switchModal = document.getElementById('discord-file-switcher-modal');
+  var switchClose = document.getElementById('discord-switcher-close-btn');
+  var switchList = document.getElementById('discord-switcher-list');
+
   if (refreshBtn) {
     refreshBtn.addEventListener('click', function(e) {
       e.preventDefault();
       window.location.reload();
     });
   }
-  if (extBtn) {
-    extBtn.addEventListener('click', function(e) {
-      var hasFrameId = new URLSearchParams(window.location.search).has('frame_id');
-      if (window.self !== window.top && hasFrameId && window.__discordOpenExternal) {
-        e.preventDefault();
-        window.__discordOpenExternal(extBtn.href);
-      }
-    });
-  }
-  if (closeBtn && bar) {
+  if (closeBtn && bar && launcherBtn) {
     closeBtn.addEventListener('click', function(e) {
       e.preventDefault();
       bar.style.display = 'none';
+      launcherBtn.style.display = 'inline-flex';
+      if (switchModal) switchModal.style.display = 'none';
     });
+  }
+  if (launcherBtn && bar) {
+    launcherBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      launcherBtn.style.display = 'none';
+      bar.style.display = 'flex';
+    });
+  }
+
+  if (switchBtn && switchModal) {
+    switchBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (switchModal.style.display === 'none' || !switchModal.style.display) {
+        switchModal.style.display = 'block';
+        loadChannelFiles();
+      } else {
+        switchModal.style.display = 'none';
+      }
+    });
+  }
+
+  if (switchClose && switchModal) {
+    switchClose.addEventListener('click', function(e) {
+      e.preventDefault();
+      switchModal.style.display = 'none';
+    });
+  }
+
+  function loadChannelFiles() {
+    var params = new URLSearchParams(window.location.search);
+    var chanId = params.get('channel_id');
+    if (!chanId) {
+      switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널 정보를 확인할 수 없습니다.</div>';
+      return;
+    }
+    fetch('/api/channel-files?channel_id=' + encodeURIComponent(chanId))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var files = data.files || [];
+        if (!files.length) {
+          switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널에 지원되는 문서가 없습니다.</div>';
+          return;
+        }
+        var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
+        var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
+        var html = '';
+        files.forEach(function(f) {
+          var icon = icons[f.format] || '📄';
+          var color = colors[f.format] || '#38bdf8';
+          var sizeKb = (f.size / 1024).toFixed(1);
+          html += '<div class="discord-switcher-item" data-url="' + encodeURIComponent(f.url) + '" data-title="' + encodeURIComponent(f.name) + '" style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.08);padding:8px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+          html += '  <div style="overflow:hidden;">';
+          html += '    <div style="font-weight:600;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;">' + icon + ' ' + f.name + '</div>';
+          html += '    <div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + f.author + ' · ' + sizeKb + ' KB</div>';
+          html += '  </div>';
+          html += '  <span style="background:' + color + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;flex-shrink:0;">' + (f.format ? f.format.toUpperCase() : 'DOC') + '</span>';
+          html += '</div>';
+        });
+        switchList.innerHTML = html;
+
+        var items = switchList.querySelectorAll('.discord-switcher-item');
+        items.forEach(function(item) {
+          item.addEventListener('mouseenter', function() { item.style.background = 'rgba(51,65,85,0.9)'; });
+          item.addEventListener('mouseleave', function() { item.style.background = 'rgba(30,41,59,0.7)'; });
+          item.addEventListener('click', function() {
+            var fileUrl = decodeURIComponent(item.getAttribute('data-url'));
+            var fileTitle = decodeURIComponent(item.getAttribute('data-title'));
+            var newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('cdn_url', fileUrl);
+            newUrl.searchParams.set('title', fileTitle);
+            newUrl.searchParams.set('_t', Date.now());
+            window.location.href = newUrl.toString();
+          });
+        });
+      })
+      .catch(function(err) {
+        switchList.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:10px;">문서 목록을 가져올 수 없습니다.</div>';
+      });
   }
 })();
 </script>`;
@@ -665,12 +811,14 @@ async function handleRenderRequest(req, res) {
   }
 
   // 1. 세션 우선순위: 채널 최신 클릭 세션이 오래된 인스턴스 세션보다 무조건 우선!
+  // Discord Activity는 방을 닫고 다시 열어도 같은 instance_id를 재사용하는 경우가 많으므로,
+  // 인스턴스 세션이 채널 세션보다 3초 이상 최신인 경우가 아니면 채널 세션을 우선합니다.
   if (!targetUrl) {
     let chosen = null;
     if (chanSess && instSess) {
       const chanTime = typeof chanSess.updatedAt === 'number' ? chanSess.updatedAt : new Date(chanSess.updatedAt || 0).getTime();
       const instTime = typeof instSess.updatedAt === 'number' ? instSess.updatedAt : new Date(instSess.updatedAt || 0).getTime();
-      chosen = (chanTime >= instTime) ? chanSess : instSess;
+      chosen = (instTime - chanTime > 3000) ? instSess : chanSess;
     } else {
       chosen = chanSess || instSess;
     }
@@ -682,39 +830,56 @@ async function handleRenderRequest(req, res) {
     if (chosen) {
       targetUrl = chosen.cdnUrl;
       fileTitle = chosen.fileName;
-      // 동일 방 참여자를 위해 최신 세션 동기화
-      if (activityInstanceId) {
-        instanceSessions.set(activityInstanceId, chosen);
-      }
     }
   }
 
-  // 방장이든 참여자이든, 유효한 URL과 instance_id가 있으면 동일 세션 참여자를 위해 캐싱
-  if (activityInstanceId && targetUrl) {
-    instanceSessions.set(activityInstanceId, {
-      cdnUrl: targetUrl,
-      fileName: fileTitle || 'Discord HTML Runner',
-      updatedAt: Date.now()
-    });
-  }
-
   try {
-    let rawHtml = '';
+    const format = getFileFormat(fileTitle || targetUrl) || 'html';
+    const serverOrigin = `${req.protocol}://${req.get('host')}`;
 
-    if (!targetUrl) {
-      const samplePath = path.join(__dirname, '..', 'examples', 'sample_test.html');
-      if (fs.existsSync(samplePath)) {
-        rawHtml = fs.readFileSync(samplePath, 'utf-8');
-      } else {
-        rawHtml = '<!DOCTYPE html><html><body style="background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;text-align:center;"><div><h2>🚀 Discord HTML Activity</h2><p style="color:#94a3b8;">디스코드 채팅방에 HTML 파일을 업로드하고 버튼을 눌러주세요.</p></div></body></html>';
-      }
-    } else {
+    if (targetUrl) {
       const parsedUrl = new URL(targetUrl);
       const allowedHosts = ['cdn.discordapp.com', 'media.discordapp.net'];
       if (!allowedHosts.includes(parsedUrl.hostname)) {
         return res.status(403).send('허용되지 않은 외부 도메인입니다. (cdn.discordapp.com만 가능)');
       }
+    }
 
+    if (format === 'pdf') {
+      const viewerHtml = renderPdfViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(finalHtml);
+    }
+
+    if (format === 'pptx') {
+      const viewerHtml = renderPptxViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(finalHtml);
+    }
+
+    if (format === 'md') {
+      let rawMd = '';
+      if (targetUrl) {
+        const response = await fetch(targetUrl);
+        if (response.ok) rawMd = await response.text();
+      }
+      const viewerHtml = renderMarkdownViewer(rawMd, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(finalHtml);
+    }
+
+    let rawHtml = '';
+    if (!targetUrl) {
+      const samplePath = path.join(__dirname, '..', 'examples', 'sample_test.html');
+      if (fs.existsSync(samplePath)) {
+        rawHtml = fs.readFileSync(samplePath, 'utf-8');
+      } else {
+        rawHtml = '<!DOCTYPE html><html><body style="background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;text-align:center;"><div><h2>🚀 Discord Viewer</h2><p style="color:#94a3b8;">디스코드 채팅방에 문서를 업로드하고 버튼을 눌러주세요.</p></div></body></html>';
+      }
+    } else {
       const response = await fetch(targetUrl);
       if (!response.ok) {
         return res.status(200).send(`
@@ -726,7 +891,7 @@ async function handleRenderRequest(req, res) {
           <body>
             <h2>⚠️ 파일 만료 알림</h2>
             <p>디스코드 CDN 임시 링크가 만료되었거나 파일을 찾을 수 없습니다.</p>
-            <p style="color:#94a3b8;font-size:14px;">디스코드 채팅방에서 HTML 파일을 다시 업로드하고 버튼을 눌러주세요!</p>
+            <p style="color:#94a3b8;font-size:14px;">디스코드 채팅방에서 문서를 다시 업로드하고 버튼을 눌러주세요!</p>
           </body>
           </html>
         `);
@@ -734,14 +899,12 @@ async function handleRenderRequest(req, res) {
       rawHtml = await response.text();
     }
 
-    const serverOrigin = `${req.protocol}://${req.get('host')}`;
     const finalHtml = renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
-
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(finalHtml);
   } catch (error) {
     console.error('❌ 렌더링 실패:', error);
-    res.status(500).send('HTML 렌더링 중 오류가 발생했습니다.');
+    res.status(500).send('문서 렌더링 중 오류가 발생했습니다.');
   }
 }
 
@@ -760,6 +923,41 @@ app.get('/robots.txt', (req, res) => {
 // 클라우드 호스팅 헬스체크용 엔드포인트
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
+});
+
+// 채널 내 최근 문서 목록 조회 엔드포인트 (액티비티 내 즉시 파일 전환용)
+app.get('/api/channel-files', async (req, res) => {
+  const channelId = req.query.channel_id;
+  const botToken = process.env.DISCORD_BOT_TOKEN;
+  if (!channelId || !botToken) {
+    return res.json({ files: [] });
+  }
+  try {
+    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=30`, {
+      headers: { Authorization: `Bot ${botToken}` }
+    });
+    if (response.ok) {
+      const msgs = await response.json();
+      const files = [];
+      for (const m of msgs) {
+        for (const att of (m.attachments || [])) {
+          const fmt = getFileFormat(att.filename || att.name);
+          if (fmt) {
+            files.push({
+              id: att.id,
+              name: att.filename || att.name,
+              url: att.url,
+              size: att.size,
+              format: fmt,
+              author: m.author ? m.author.username : '사용자'
+            });
+          }
+        }
+      }
+      return res.json({ files });
+    }
+  } catch (e) {}
+  return res.json({ files: [] });
 });
 
 // 최신 클릭된 파일 세션 메타데이터 조회 API (캐시 방지 헤더 포함)

@@ -1,20 +1,23 @@
 {
   "name": "discord-viewer",
-  "version": "1.0.0",
-  "description": "Discord In-App Activity & Real-time Viewer (HTML/CSS, PDF & Documents)",
+  "version": "1.1.0",
+  "description": "Discord In-App Activity & Real-time Viewer (HTML, PDF, Markdown & PPTX)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "deploy": "wrangler deploy",
-    "deploy:secret": "wrangler secret put DISCORD_BOT_TOKEN"
+    "register": "node scripts/register_commands.js",
+    "deploy": "npx wrangler deploy",
+    "deploy:secret": "npx wrangler secret put DISCORD_BOT_TOKEN"
   },
   "keywords": [
     "discord",
     "discord-bot",
     "discord-activity",
     "html-renderer",
-    "srcdoc"
+    "pdf-viewer",
+    "markdown-viewer",
+    "pptx-viewer"
   ],
   "author": "",
   "license": "MIT",
