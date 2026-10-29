@@ -143,12 +143,12 @@ discord-viewer/
 
 ---
 
-## 🛠️ 자체 배포 가이드 (Self-Hosting with Cloudflare Workers)
+## 🛠️ 설치 및 설정 가이드 (Setup & Installation)
 
-### 1. 사전 준비
+### 1. 사전 준비 (Prerequisites)
 * [Node.js](https://nodejs.org/) (v18 이상)
-* [Cloudflare 계정](https://dash.cloudflare.com/) (무료 플랜)
-* [Discord Developer Portal](https://discord.com/developers/applications) 애플리케이션
+* [Discord Developer Portal](https://discord.com/developers/applications) 계정 및 애플리케이션 생성
+* [Cloudflare 계정](https://dash.cloudflare.com/) (Workers 무료 플랜 - 클라우드 배포 시 필요)
 
 ### 2. 디스코드 개발자 포털 설정
 1. **애플리케이션 생성:** `New Application` 생성 후 **General Information**에서 `Application ID` 및 `Public Key` 확인
@@ -158,92 +158,69 @@ discord-viewer/
 3. **액티비티 설정 (`Activities` 탭):**
    * `Enable Activities` 활성화
 
-### 3. 프로젝트 설정 및 배포
+### 3. 공통 프로젝트 환경 설정 (Common Setup)
+모든 터미널 명령어는 **프로젝트 루트 폴더(`discord-viewer/`)**에서 실행합니다:
 
-```bash
-# 1) 프로젝트 루트 폴더(discord-viewer/)에서 의존성 설치
-npm install
-
-# 2) Cloudflare Workers 환경 설정 파일 생성
-# Windows:
-copy wrangler.toml.example wrangler.toml
-# macOS / Linux:
-cp wrangler.toml.example wrangler.toml
-# 생성된 wrangler.toml 파일을 열고 발급받은 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
-
-# 3) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록
-npm run register
-
-# 4) Cloudflare Workers 배포
-npm run deploy
-```
-
-배포 완료 시 터미널에 출력되는 워커 주소(예: `https://your-worker.workers.dev`)를 확인합니다.
-
-### 4. 디스코드 개발자 포털 최종 연동
-1. **General Information 탭:**
-   * **Interactions Endpoint URL**에 배포된 워커 주소 입력 (예: `https://your-worker.workers.dev`) → `Save Changes` (Ed25519 서명 자동 검증)
-2. **Activities 탭:**
-   * **URL Mappings** 타깃 주소 또는 액티비티 URL에 동일한 워커 주소 등록
-
----
-
-## 💻 로컬 개발 환경 실행 (Node.js 모드)
-
-Cloudflare Workers 배포 없이, 개발자의 PC 환경에서 Express 웹 서버와 `discord.js` 봇을 직접 실행하여 기능 디버깅 및 개발을 진행할 수 있습니다.
-
-### 1. 실행 위치
-* 모든 터미널 명령어는 **프로젝트 루트 폴더(`discord-viewer/`)**에서 실행합니다.
-
-### 2. 사전 패키지 설치 & 환경변수 설정
 ```bash
 # 1) 의존성 패키지 설치
 npm install
 
 # 2) 환경변수 템플릿 복사 (.env 생성)
-# Windows (PowerShell / CMD):
+# Windows:
 copy .env.example .env
 # macOS / Linux:
 cp .env.example .env
-```
 
-### 3. `.env` 파일 설정
-생성된 `.env` 파일을 텍스트 에디터로 열고, 디스코드 개발자 포털에서 발급받은 정보를 입력합니다:
-```env
-# 디스코드 봇 토큰 (Bot 탭 -> Reset Token)
-DISCORD_BOT_TOKEN=your_discord_bot_token_here
+# 생성된 .env 파일을 열고 발급받은 봇 토큰 및 키 정보를 입력합니다:
+# DISCORD_BOT_TOKEN=your_token_here
+# DISCORD_CLIENT_ID=your_client_id_here
+# DISCORD_PUBLIC_KEY=your_public_key_here
 
-# 디스코드 애플리케이션 ID (General Information -> Application ID)
-DISCORD_CLIENT_ID=your_discord_application_client_id_here
-
-# 디스코드 퍼블릭 키 (General Information -> Public Key)
-DISCORD_PUBLIC_KEY=your_discord_public_key_here
-
-# 로컬 Express 웹 서버 포트 (기본값: 3000)
-PORT=3000
-```
-
-### 4. 슬래시 명령어 등록 (최초 1회)
-디스코드 본사 서버에 `/view`, `/도움말`, 우클릭 메뉴를 등록합니다:
-```bash
+# 3) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록 (최초 1회)
 npm run register
 ```
 
-### 5. 로컬 서버 및 봇 동시 실행
+---
+
+## 🚀 실행 및 배포 모드 선택 (택 1)
+
+공통 환경 설정을 마친 후, 운영 목적에 맞는 실행 방식을 선택합니다:
+
+### [모드 1] Cloudflare Workers 서버리스 배포 (운영 환경 ⭐ 강력 추천)
+상시 켜두는 컴퓨터 없이 전 세계 300개 이상의 엣지 데이터센터에서 24시간 100% 무료(유지비 0원)로 구동합니다:
+
+```bash
+# 1) wrangler.toml 환경 설정 파일 생성
+# Windows: copy wrangler.toml.example wrangler.toml  /  macOS·Linux: cp wrangler.toml.example wrangler.toml
+# wrangler.toml 파일의 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
+
+# 2) Cloudflare Workers 실서버 배포
+npm run deploy
+```
+
+배포 완료 시 터미널에 출력되는 워커 주소(예: `https://your-worker.workers.dev`)를 개발자 포털에 연동합니다:
+1. **General Information 탭:** **Interactions Endpoint URL**에 워커 주소 입력 후 `Save Changes`
+2. **Activities 탭:** **URL Mappings** 타깃 주소에 동일한 워커 주소 등록
+
+---
+
+### [모드 2] 로컬 개발 환경 실행 (Node.js 디버깅 모드)
+Cloudflare 배포 없이 개발자 PC 환경에서 Express 웹 서버와 `discord.js` 봇을 직접 구동하여 코드를 수정하고 실시간 디버깅할 때 사용합니다.
+
+#### 1. 로컬 서버 및 봇 동시 실행
 ```bash
 npm run dev
 ```
-* 코드 변경 시 자동으로 재시작되는 Node.js `--watch` 감지 모드로 구동됩니다.
-* 실행 시 **로컬 Express 웹 서버(포트 3000)**와 **디스코드 게이트웨이 봇**이 동시에 실행됩니다.
-* 이제 봇이 온라인 상태가 되며, 디스코드 채팅방에서 `/view`나 파일 업로드 이벤트에 실시간 응답합니다.
+* 코드 변경 시 자동으로 재시작되는 Node.js `--watch` 파일 감지 모드로 구동됩니다.
+* 로컬 Express 웹 서버(포트 3000)와 discord.js 게이트웨이 봇이 동시에 켜지며, 채팅방 이벤트에 실시간 응답합니다.
 
-> 💡 **로컬 환경에서 인앱 액티비티(팝업 뷰어)까지 테스트하려면?**  
-> 디스코드 액티비티는 브라우저 보안 규격상 외부에서 접근 가능한 HTTPS 주소를 필요로 합니다. [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)을 사용하면 로컬 포트를 즉시 안전한 HTTPS로 외부에 노출할 수 있습니다:
-> ```bash
-> # Cloudflare Tunnel 실행 (설치 없이 npx로 즉시 구동)
-> npx cloudflared tunnel --url http://localhost:3000
-> ```
-> 터미널에 출력된 임시 HTTPS 주소(예: `https://xxxx.trycloudflare.com`)를 `.env` 파일의 `PUBLIC_ACTIVITY_URL`에 입력하고, 개발자 포털의 Activities URL Mappings에 등록하면 로컬 PC에서도 인앱 팝업 뷰어가 완벽히 구동됩니다.
+#### 2. (선택) 로컬에서 인앱 액티비티(팝업 뷰어)까지 테스트할 때
+디스코드 액티비티는 보안상 외부 HTTPS 주소만 허용하므로, 로컬 3000번 포트를 외부로 임시 터널링합니다:
+```bash
+# Cloudflare Tunnel 실행 (설치 불필요 npx 구동)
+npx cloudflared tunnel --url http://localhost:3000
+```
+* 출력된 임시 HTTPS 주소(예: `https://xxxx.trycloudflare.com`)를 `.env`의 `PUBLIC_ACTIVITY_URL`에 입력하고, 개발자 포털 Activities의 URL Mappings에 등록하면 로컬 PC에서도 인앱 팝업 뷰어가 완벽히 구동됩니다.
 
 ---
 
