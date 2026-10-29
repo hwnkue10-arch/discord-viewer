@@ -56,218 +56,150 @@ async function verifyDiscordSignature(rawBody, signature, timestamp, clientPubli
   }
 }
 
-// 외부 에셋 및 폰트 인메모리 캐시 (반복 다운로드 방지)
-const assetCache = new Map();
-
-// ArrayBuffer를 Base64 문자열로 변환 (C++ 네이티브 Buffer 사용으로 0.05ms 내 고속 변환)
-function bufferToBase64(buffer) {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(buffer).toString('base64');
-  }
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-// 외부 에셋 안전 다운로드 헬퍼 (Cloudflare 무료 플랜 50개 서브리퀘스트 한도 보호 및 타임아웃)
-async function safeFetchAsset(url, subrequestTracker, timeoutMs = 4000) {
-  if (assetCache.has(url)) {
-    return { ok: true, cached: true, content: assetCache.get(url) };
-  }
-  if (subrequestTracker && subrequestTracker.count >= subrequestTracker.max) {
-    return null;
-  }
-  if (subrequestTracker) {
-    subrequestTracker.count++;
-  }
+// SSRF 방지 검사 함수 (로컬호스트, 사설망 IP 및 메타데이터 주소 차단)
+function isBlockedTarget(urlStr) {
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-    if (!res.ok) return null;
-    return res;
+    const parsed = new URL(urlStr);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return true;
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+    if (host.endsWith('.local') || host.endsWith('.internal')) return true;
+    const parts = host.split('.');
+    if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      if (p0 === 10) return true;
+      if (p0 === 127) return true;
+      if (p0 === 169 && p1 === 254) return true;
+      if (p0 === 192 && p1 === 168) return true;
+      if (p0 === 172 && p1 >= 16 && p1 <= 31) return true;
+    }
+    return false;
   } catch (e) {
-    return null;
+    return true;
   }
 }
 
-// CSS 내부 상대경로 웹폰트/에셋을 data: Base64 URI로 완전 인라인화하거나 상대경로 프록시로 변환
-async function resolveCssUrls(cssContent, baseUrl, subrequestTracker) {
-  const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
-  const matches = [...cssContent.matchAll(urlRegex)];
+// 런타임 심(Shim) 스크립트: 페이지 로드 후 실행되는 fetch, XHR, 동적 DOM 생성 및 샌드박스 스토리지 보정
+const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
+(function() {
+  var P = '/api/asset-proxy?url=';
+  function abs(u) {
+    try { return new URL(u, document.baseURI).href; } catch(e) { return null; }
+  }
+  function ext(u) {
+    var a = abs(u);
+    return (a && /^https?:/i.test(a) && new URL(a).origin !== location.origin) ? a : null;
+  }
+  function wrap(u) {
+    var a = ext(u);
+    return a ? P + encodeURIComponent(a) : u;
+  }
 
-  for (const match of matches) {
-    const fullMatch = match[0];
-    let relUrl = match[2].trim();
+  // 1. fetch 및 XMLHttpRequest 가로채기 (런타임 API 호출 CSP 우회)
+  var _fetch = window.fetch;
+  if (_fetch) {
+    window.fetch = function(input, init) {
+      if (typeof input === 'string' || input instanceof URL) {
+        return _fetch.call(this, wrap(String(input)), init);
+      } else if (input && input.url) {
+        return _fetch.call(this, new Request(wrap(input.url), input), init);
+      }
+      return _fetch.call(this, input, init);
+    };
+  }
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    var rest = Array.prototype.slice.call(arguments, 2);
+    return _open.apply(this, [method, wrap(url)].concat(rest));
+  };
 
-    if (relUrl.startsWith('data:') || relUrl.startsWith('/api/asset-proxy')) {
-      continue;
+  // 2. 동적 DOM 에셋 생성 가로채기 (new Image(), createElement('script') 등)
+  function patch(proto, prop) {
+    var d = Object.getOwnPropertyDescriptor(proto, prop);
+    if (d && d.set) {
+      Object.defineProperty(proto, prop, {
+        configurable: true,
+        enumerable: d.enumerable,
+        get: d.get,
+        set: function(v) { d.set.call(this, wrap(v)); }
+      });
     }
+  }
+  if (window.HTMLImageElement) patch(HTMLImageElement.prototype, 'src');
+  if (window.HTMLScriptElement) patch(HTMLScriptElement.prototype, 'src');
+  if (window.HTMLLinkElement) patch(HTMLLinkElement.prototype, 'href');
+  if (window.HTMLMediaElement) patch(HTMLMediaElement.prototype, 'src');
+  if (window.HTMLSourceElement) patch(HTMLSourceElement.prototype, 'src');
 
+  var _sa = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function(name, val) {
+    if (/^(src|href|poster)$/i.test(name) && /^(IMG|SCRIPT|LINK|VIDEO|AUDIO|SOURCE)$/.test(this.tagName)) {
+      val = wrap(val);
+    }
+    return _sa.call(this, name, val);
+  };
+
+  // 3. iframe 샌드박스 내 Storage 차단 대응 (인메모리 안전 폴백)
+  try {
+    localStorage.setItem('__t', '1');
+    localStorage.removeItem('__t');
+  } catch (e) {
+    var createMemStore = function() {
+      var store = {};
+      return {
+        getItem: function(k) { return store.hasOwnProperty(k) ? store[k] : null; },
+        setItem: function(k, v) { store[k] = String(v); },
+        removeItem: function(k) { delete store[k]; },
+        clear: function() { store = {}; },
+        key: function(i) { return Object.keys(store)[i] || null; },
+        get length() { return Object.keys(store).length; }
+      };
+    };
     try {
-      const absUrl = new URL(relUrl, baseUrl).href;
-
-      // 1. 웹폰트: 최신 고압축 .woff2 포맷만 Base64로 우선 인라인화하여 CPU/크기 낭비 방지!
-      // (중복된 .woff, .ttf 또는 350KB 초과 대용량 폰트는 HTML 폭증 방지를 위해 프록시로 우회)
-      if (absUrl.endsWith('.woff2')) {
-        let base64Font = assetCache.get(absUrl);
-        if (!base64Font) {
-          const fontRes = await safeFetchAsset(absUrl, subrequestTracker, 5000);
-          if (fontRes && !fontRes.cached) {
-            const fontBuf = await fontRes.arrayBuffer();
-            // 350KB 이하의 핵심 웹폰트만 Base64 인라인화
-            if (fontBuf.byteLength <= 350 * 1024) {
-              base64Font = `data:font/woff2;base64,${bufferToBase64(fontBuf)}`;
-              assetCache.set(absUrl, base64Font);
-            }
-          } else if (fontRes && fontRes.cached) {
-            base64Font = fontRes.content;
-          }
-        }
-        if (base64Font) {
-          cssContent = cssContent.replace(fullMatch, () => `url("${base64Font}")`);
-          continue;
-        }
-      }
-
-      // .woff, .ttf, 350KB 초과 폰트 및 기타 에셋은 상대경로 프록시(/api/asset-proxy)로 연결하여 CSP 통과
-      cssContent = cssContent.replace(fullMatch, () => `url("/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`);
-    } catch (e) {}
+      Object.defineProperty(window, 'localStorage', { value: createMemStore(), configurable: true });
+      Object.defineProperty(window, 'sessionStorage', { value: createMemStore(), configurable: true });
+    } catch(err) {}
   }
 
-  return cssContent;
-}
+  // 4. 모달 다이얼로그 폴백 (디스코드 팝업 내 멈춤 방지)
+  window.alert = function(msg) { console.log('[Alert]', msg); };
+  window.confirm = function(msg) { console.log('[Confirm]', msg); return true; };
+  window.prompt = function(msg, def) { console.log('[Prompt]', msg); return def || null; };
 
-// 외부 CSS/JS 에셋 병렬 다운로드 및 고속 인라인화 (서브리퀘스트 상한 보호)
-async function processHtmlForDiscordActivity(rawHtml) {
-  let processed = rawHtml;
-  const subrequestTracker = { count: 0, max: 35 };
-
-  // 1. @import 외부 폰트/CSS 인라인화
-  const importRegex = /@import\s+url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)\s*;?/gi;
-  const importMatches = [...processed.matchAll(importRegex)];
-  for (const match of importMatches) {
-    const fullTag = match[0];
-    const importUrl = match[2];
-    try {
-      let cssText = assetCache.get(importUrl);
-      if (!cssText) {
-        const res = await safeFetchAsset(importUrl, subrequestTracker, 4000);
-        if (res && !res.cached) {
-          cssText = await res.text();
-          assetCache.set(importUrl, cssText);
-        } else if (res && res.cached) {
-          cssText = res.content;
+  // 5. 외부 링크 클릭 시 디스코드 SDK 외부 브라우저 창 연동
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a[href]');
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (href && /^https?:/i.test(href) && !href.includes('/api/asset-proxy')) {
+      var full = abs(href);
+      if (full && new URL(full).origin !== location.origin) {
+        if (window.discordSdk && window.discordSdk.commands && window.discordSdk.commands.openExternalLink) {
+          e.preventDefault();
+          window.discordSdk.commands.openExternalLink({ url: full }).catch(function() {});
         }
-      }
-      if (cssText) {
-        const resolved = await resolveCssUrls(cssText, importUrl, subrequestTracker);
-        processed = processed.replace(fullTag, () => `/* inlined @import ${importUrl} */\n${resolved}\n`);
-      }
-    } catch (err) {}
-  }
-
-  // 2. 외부 CSS (<link rel="stylesheet">) 병렬 다운로드 및 인라인화
-  const linkRegex = /<link\b(?=[^>]*?\bhref=["'](https?:\/\/[^"']+)["'])(?=[^>]*?\brel=["']stylesheet["'])[^>]*>/gi;
-  const linkMatches = [...processed.matchAll(linkRegex)];
-  if (linkMatches.length > 0) {
-    const linkReplacements = await Promise.all(
-      linkMatches.map(async (m) => {
-        const fullTag = m[0];
-        const cssUrl = m[1];
-        try {
-          let cssContent = assetCache.get(cssUrl);
-          if (!cssContent) {
-            const res = await safeFetchAsset(cssUrl, subrequestTracker, 4000);
-            if (res && !res.cached) {
-              cssContent = await res.text();
-              assetCache.set(cssUrl, cssContent);
-            } else if (res && res.cached) {
-              cssContent = res.content;
-            }
-          }
-          if (cssContent) {
-            const resolved = await resolveCssUrls(cssContent, cssUrl, subrequestTracker);
-            return { fullTag, replacement: `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>` };
-          }
-        } catch (err) {}
-        return null;
-      })
-    );
-    for (const item of linkReplacements) {
-      if (item) {
-        processed = processed.replace(item.fullTag, () => item.replacement);
       }
     }
-  }
+  }, true);
 
-  // 3. 외부 JS (<script src="https://...">) 병렬 다운로드 및 인라인화 (type="module" 등 속성 보존)
-  const scriptRegex = /<script\b([^>]*?)\bsrc=["'](https?:\/\/[^"']+)["']([^>]*)>\s*<\/script>/gi;
-  const scriptMatches = [...processed.matchAll(scriptRegex)];
-  if (scriptMatches.length > 0) {
-    const scriptReplacements = await Promise.all(
-      scriptMatches.map(async (m) => {
-        const fullTag = m[0];
-        const attrsBefore = m[1] || '';
-        const jsUrl = m[2];
-        const attrsAfter = m[3] || '';
-        try {
-          let jsContent = assetCache.get(jsUrl);
-          if (!jsContent) {
-            const res = await safeFetchAsset(jsUrl, subrequestTracker, 5000);
-            if (res && !res.cached) {
-              jsContent = await res.text();
-              assetCache.set(jsUrl, jsContent);
-            } else if (res && res.cached) {
-              jsContent = res.content;
-            }
-          }
-          if (jsContent) {
-            const safeJs = jsContent.replace(/<\/script/gi, '<\\/script');
-            const allAttrs = attrsBefore + ' ' + attrsAfter;
-            const isModule = /type=["']module["']/i.test(allAttrs);
-            const extraAttr = isModule ? ' type="module"' : '';
-            return { fullTag, replacement: `<script data-inlined-from="${jsUrl}"${extraAttr}>\n${safeJs}\n</script>` };
-          }
-        } catch (err) {}
-        return null;
-      })
-    );
-    for (const item of scriptReplacements) {
-      if (item) {
-        processed = processed.replace(item.fullTag, () => item.replacement);
-      }
+  // 6. CSP 위반 감지 배너 (WebSocket, 외부 iframe 등 근본적 차단 감지 시 안내)
+  document.addEventListener('securitypolicyviolation', function(e) {
+    console.warn('[Discord CSP Blocked]', e.blockedURI, 'directive:', e.violatedDirective);
+    var banner = document.getElementById('discord-csp-warning-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'discord-csp-warning-banner';
+      banner.style.cssText = 'position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:2147483646;background:rgba(239,68,68,0.92);backdrop-filter:blur(6px);color:white;padding:6px 14px;border-radius:20px;font-size:12px;font-family:sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;';
+      banner.innerHTML = '<span>⚠️ 일부 외부 기능이 디스코드 보안에 의해 차단되었습니다.</span><button style="background:white;color:#ef4444;border:none;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:bold;cursor:pointer;" onclick="this.parentElement.remove()">닫기</button>';
+      (document.body || document.documentElement).appendChild(banner);
     }
-  }
-
-  // 4. 외부 이미지 (<img src="https://...">) -> 디스코드 CSP 차단 방지를 위해 /api/asset-proxy 프록시로 변환
-  const imgRegex = /<img\b(?=[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'])[^>]*>/gi;
-  processed = processed.replace(imgRegex, (fullTag) => {
-    return fullTag.replace(/\bsrc=["'](https?:\/\/[^"']+)["']/i, (srcMatch, imgUrl) => {
-      if (imgUrl.includes('/api/asset-proxy')) return srcMatch;
-      return `src="/api/asset-proxy?url=${encodeURIComponent(imgUrl)}"`;
-    });
   });
+})();
+</script>`;
 
-  return processed;
-}
-
-// 디스코드 액티비티 CSP 클릭/입력 차단 우회 이벤트 브리지 주입 (선형 O(N) 정규식 + 다중 이벤트 지원)
-function bridgeInlineEventHandlers(rawHtml) {
-  let processed = rawHtml;
-  const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(?:'([^']*)'|"([^"]*)")/gi;
-  processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, singleCode, doubleCode) => {
-    const code = singleCode !== undefined ? singleCode : (doubleCode !== undefined ? doubleCode : '');
-    return `data-act-${eventName}="${code.replace(/"/g, '&quot;')}"`;
-  });
-
-  const bridgeScript = `
-<script id="discord-csp-event-bridge">
+// 디스코드 액티비티 전역 이벤트 위임 브리지 (CSP 안전 eval-free 함수 호출 및 인터랙션 보장)
+const EVENT_BRIDGE_SCRIPT = `<script id="discord-csp-event-bridge">
 (function() {
   var lastTrigger = 0;
 
@@ -351,7 +283,7 @@ function bridgeInlineEventHandlers(rawHtml) {
         }
       }
 
-      // 일반 JS 인라인 코드 블록 실행
+      // 일반 JS 인라인 코드 블록 실행 시도
       if (code) {
         try {
           new Function('event', code).call(target, e);
@@ -370,15 +302,169 @@ function bridgeInlineEventHandlers(rawHtml) {
     }, true);
   });
 })();
-</script>
-`;
+</script>`;
 
-  if (processed.includes('</body>')) {
-    processed = processed.replace('</body>', `${bridgeScript}\n</body>`);
-  } else {
-    processed += bridgeScript;
+// 플로팅 헬퍼 바 생성 (새로고침 및 인터넷 새 창 바로가기 버튼 포함)
+function buildHelperBar(fileTitle, directUrl) {
+  return `
+<div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
+  <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
+  <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${fileTitle}</span>
+  <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
+  <a id="discord-helper-external-btn" href="${directUrl}" target="_blank" style="background:#0284c7;color:white;text-decoration:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-block;transition:background 0.2s;">🌐 새 창</a>
+  <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:13px;font-weight:bold;cursor:pointer;line-height:1;" title="헬퍼 바 숨기기">✕</button>
+</div>
+<script id="discord-helper-bar-script">
+(function() {
+  var bar = document.getElementById('discord-activity-helper-bar');
+  var refreshBtn = document.getElementById('discord-helper-refresh-btn');
+  var closeBtn = document.getElementById('discord-helper-close-btn');
+  var extBtn = document.getElementById('discord-helper-external-btn');
+
+  if (refreshBtn) refreshBtn.addEventListener('click', function(e) { e.preventDefault(); window.location.reload(); });
+  if (closeBtn && bar) closeBtn.addEventListener('click', function(e) { e.preventDefault(); bar.style.display = 'none'; });
+  if (extBtn) {
+    extBtn.addEventListener('click', function(e) {
+      if (window.discordSdk && window.discordSdk.commands && window.discordSdk.commands.openExternalLink) {
+        e.preventDefault();
+        window.discordSdk.commands.openExternalLink({ url: extBtn.href }).catch(function() {
+          window.open(extBtn.href, '_blank');
+        });
+      }
+    });
   }
-  return processed;
+})();
+</script>`;
+}
+
+// Cloudflare Workers HTMLRewriter 핸들러 클래스군
+class ElementProxyRewriter {
+  constructor(attrName) {
+    this.attrName = attrName;
+  }
+  element(el) {
+    const val = el.getAttribute(this.attrName);
+    if (!val) return;
+    const trimmed = val.trim();
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('#') || trimmed.includes('/api/asset-proxy')) {
+      return;
+    }
+    if (/^(https?:)?\/\//i.test(trimmed)) {
+      const fullUrl = trimmed.startsWith('//') ? 'https:' + trimmed : trimmed;
+      el.setAttribute(this.attrName, `/api/asset-proxy?url=${encodeURIComponent(fullUrl)}`);
+      if (el.hasAttribute('integrity')) el.removeAttribute('integrity');
+      if (el.hasAttribute('crossorigin')) el.removeAttribute('crossorigin');
+    }
+  }
+}
+
+class SrcsetProxyRewriter {
+  element(el) {
+    const srcset = el.getAttribute('srcset');
+    if (!srcset) return;
+    const parts = srcset.split(',');
+    const rewritten = parts.map((part) => {
+      const trimmed = part.trim();
+      const match = trimmed.match(/^(\S+)(\s+.*)?$/);
+      if (!match) return part;
+      let url = match[1];
+      const descriptor = match[2] || '';
+      if (/^(https?:)?\/\//i.test(url) && !url.includes('/api/asset-proxy')) {
+        const full = url.startsWith('//') ? 'https:' + url : url;
+        url = `/api/asset-proxy?url=${encodeURIComponent(full)}`;
+      }
+      return `${url}${descriptor}`;
+    }).join(', ');
+    el.setAttribute('srcset', rewritten);
+  }
+}
+
+class InlineStyleProxyRewriter {
+  element(el) {
+    const style = el.getAttribute('style');
+    if (!style || !style.includes('url(')) return;
+    const rewritten = style.replace(/url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi, (m, q, u) => {
+      if (u.includes('/api/asset-proxy')) return m;
+      return `url("/api/asset-proxy?url=${encodeURIComponent(u)}")`;
+    });
+    el.setAttribute('style', rewritten);
+  }
+}
+
+class InlineEventRewriter {
+  element(el) {
+    const events = ['click', 'change', 'input', 'submit', 'keydown', 'keyup'];
+    for (const ev of events) {
+      const attr = 'on' + ev;
+      if (el.hasAttribute(attr)) {
+        const code = el.getAttribute(attr);
+        el.setAttribute('data-act-' + ev, code);
+        el.removeAttribute(attr);
+      }
+    }
+  }
+}
+
+class HeadInjector {
+  constructor(html) {
+    this.html = html;
+  }
+  element(el) {
+    el.prepend(this.html, { html: true });
+  }
+}
+
+class BodyEndInjector {
+  constructor(html) {
+    this.html = html;
+  }
+  element(el) {
+    el.append(this.html, { html: true });
+  }
+}
+
+// 스트리밍 HTMLRewriter 기반 디스코드 액티비티 렌더러
+function renderHtmlForDiscordActivity(rawHtml, fileTitle, workerOrigin, targetUrl) {
+  let normalizedHtml = rawHtml;
+  const hasHead = /<head\b/i.test(normalizedHtml);
+  const hasBody = /<body\b/i.test(normalizedHtml);
+
+  if (!hasHead && !hasBody) {
+    normalizedHtml = `<!DOCTYPE html><html><head></head><body>${normalizedHtml}</body></html>`;
+  } else if (!hasHead) {
+    if (/<html\b[^>]*>/i.test(normalizedHtml)) {
+      normalizedHtml = normalizedHtml.replace(/<html\b[^>]*>/i, '$&<head></head>');
+    } else {
+      normalizedHtml = `<head></head>` + normalizedHtml;
+    }
+  } else if (!hasBody) {
+    normalizedHtml = normalizedHtml + `<body></body>`;
+  }
+
+  const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(targetUrl)}&title=${encodeURIComponent(fileTitle)}&_t=${Date.now()}`;
+  const helperBar = buildHelperBar(fileTitle, directUrl);
+  const bodyEndPayload = `\n${EVENT_BRIDGE_SCRIPT}\n${helperBar}\n`;
+
+  const rewriter = new HTMLRewriter()
+    .on('head', new HeadInjector(RUNTIME_SHIM_SCRIPT))
+    .on('script[src]', new ElementProxyRewriter('src'))
+    .on('link[href]', new ElementProxyRewriter('href'))
+    .on('img[src],source[src],video[src],audio[src]', new ElementProxyRewriter('src'))
+    .on('img[srcset],source[srcset]', new SrcsetProxyRewriter())
+    .on('[style]', new InlineStyleProxyRewriter())
+    .on('[onclick], [onchange], [oninput], [onsubmit], [onkeydown], [onkeyup]', new InlineEventRewriter())
+    .on('body', new BodyEndInjector(bodyEndPayload));
+
+  const response = new Response(normalizedHtml, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
+  });
+
+  return rewriter.transform(response);
 }
 
 // 메모리 세션 캐시 (폴백용 - 채널 및 액티비티 인스턴스 격리)
@@ -550,30 +636,76 @@ export default {
       return new Response('OK', { status: 200 });
     }
 
-    // 2. 외부 에셋 프록시 (/api/asset-proxy)
+    // 2. 외부 에셋 보안 프록시 (/api/asset-proxy)
     if (url.pathname === '/api/asset-proxy') {
       const assetUrl = url.searchParams.get('url');
       if (!assetUrl) return new Response('Missing url parameter', { status: 400 });
 
+      if (isBlockedTarget(assetUrl)) {
+        return new Response('Blocked target URL', { status: 403 });
+      }
+
+      // Cloudflare Edge Cache 확인 (동일 에셋 중복 다운로드 원천 방지)
+      const cache = caches.default;
+      const cacheKey = new Request(url.toString(), request);
+      let cachedResponse = await cache.match(cacheKey);
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
       try {
         const response = await fetch(assetUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0' }
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          signal: AbortSignal.timeout(8000)
         });
+
+        if (!response.ok) {
+          return new Response(`Origin returned ${response.status}`, { status: response.status });
+        }
+
         let contentType = response.headers.get('content-type') || 'application/octet-stream';
         if (assetUrl.endsWith('.woff2')) contentType = 'font/woff2';
         else if (assetUrl.endsWith('.woff')) contentType = 'font/woff';
         else if (assetUrl.endsWith('.ttf')) contentType = 'font/ttf';
+        else if (assetUrl.endsWith('.css')) contentType = 'text/css';
+        else if (assetUrl.endsWith('.js')) contentType = 'application/javascript';
 
-        return new Response(response.body, {
+        let body = response.body;
+
+        // CSS 파일인 경우 내부 @import 및 url(...)을 재귀적으로 프록시 주소로 변환하여 폰트/이미지 CSP 차단 방지!
+        if (contentType.includes('text/css') || assetUrl.endsWith('.css')) {
+          let cssText = await response.text();
+          cssText = cssText.replace(/@import\s+url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)\s*;?/gi, (m, q, u) => {
+            return `@import url("/api/asset-proxy?url=${encodeURIComponent(u)}");`;
+          });
+          cssText = cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q, relUrl) => {
+            let trimmed = relUrl.trim();
+            if (trimmed.startsWith('data:') || trimmed.startsWith('/api/asset-proxy')) return m;
+            try {
+              const abs = new URL(trimmed, assetUrl).href;
+              return `url("/api/asset-proxy?url=${encodeURIComponent(abs)}")`;
+            } catch (e) {
+              return m;
+            }
+          });
+          body = cssText;
+        }
+
+        const proxyResponse = new Response(body, {
           status: 200,
           headers: {
             'Content-Type': contentType,
             'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'public, max-age=86400'
+            'Cache-Control': 'public, max-age=86400, s-maxage=86400'
           }
         });
+
+        ctx.waitUntil(cache.put(cacheKey, proxyResponse.clone()));
+        return proxyResponse;
       } catch (err) {
-        return new Response('Asset fetch failed', { status: 502 });
+        return new Response('Asset fetch failed: ' + err.message, { status: 502 });
       }
     }
 
@@ -959,46 +1091,8 @@ export default {
       }
 
       let rawHtml = await cdnRes.text();
-
-      // 1. CSP 클릭 이벤트 브리지 주입 (가벼운 원본 HTML에 먼저 적용하여 백트래킹 방지)
-      let bridgedHtml = bridgeInlineEventHandlers(rawHtml);
-
-      // 2. 서버리스 에셋 완전 인라인화 (C++ 네이티브 Buffer 기반 Base64 웹폰트 임베딩 포함)
-      let finalHtml = await processHtmlForDiscordActivity(bridgedHtml);
-
-      // 3. 플로팅 헬퍼 바 주입
-      const helperBar = `
-<div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:8px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
-  <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
-  <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${fileTitle}</span>
-  <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
-  <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:13px;font-weight:bold;cursor:pointer;line-height:1;" title="헬퍼 바 숨기기">✕</button>
-</div>
-<script id="discord-helper-bar-script">
-(function() {
-  var bar = document.getElementById('discord-activity-helper-bar');
-  var refreshBtn = document.getElementById('discord-helper-refresh-btn');
-  var closeBtn = document.getElementById('discord-helper-close-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', function(e) { e.preventDefault(); window.location.reload(); });
-  if (closeBtn && bar) closeBtn.addEventListener('click', function(e) { e.preventDefault(); bar.style.display = 'none'; });
-})();
-</script>
-`;
-      if (finalHtml.includes('</body>')) {
-        finalHtml = finalHtml.replace('</body>', `${helperBar}\n</body>`);
-      } else {
-        finalHtml += helperBar;
-      }
-
-      return new Response(finalHtml, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
+      return renderHtmlForDiscordActivity(rawHtml, fileTitle, workerOrigin, targetUrl);
+    
     } catch (err) {
       return new Response('HTML 렌더링 중 오류가 발생했습니다: ' + err.message, { status: 500 });
     }
