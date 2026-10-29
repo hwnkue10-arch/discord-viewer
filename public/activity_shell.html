@@ -77,7 +77,7 @@
       <strong id="file-title">Discord HTML Activity Runner</strong>
     </div>
     <div class="actions">
-      <button onclick="loadAndRenderHtml()">🔄 최신 파일 다시 불러오기</button>
+      <button id="reload-html-btn">🔄 최신 파일 다시 불러오기</button>
     </div>
   </div>
 
@@ -158,6 +158,8 @@
       }
     }
 
+    const reloadBtn = document.getElementById('reload-html-btn');
+    if (reloadBtn) reloadBtn.addEventListener('click', loadAndRenderHtml);
     loadAndRenderHtml();
 
     // 창이 닫히거나 벗어날 때 iframe 메모리 및 잔상 완전 초기화
