@@ -158,8 +158,36 @@ client.on('messageCreate', async (message) => {
 
 // [2단계] 인터랙션 처리 (슬래시 커맨드, 메시지 우클릭 앱, 실행 버튼)
 client.on('interactionCreate', async (interaction) => {
-  // 1. 슬래시 명령어 (/view 및 기존 /html 호환) 처리: 채팅방 최근 문서 자동 탐색 또는 특정 메시지 지정
   if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === '도움말' || interaction.commandName === 'help') {
+      const helpEmbed = new EmbedBuilder()
+        .setTitle('📖 Doc Viewer 사용 안내서')
+        .setDescription('채팅방에 업로드된 문서를 다운로드 없이 디스코드 내부 팝업(Activity)으로 즉시 열람하는 뷰어입니다.')
+        .setColor(0x5865f2)
+        .addFields(
+          {
+            name: '1️⃣ 가장 빠른 실행 방법 (추천 ⭐)',
+            value: '채팅방의 문서 메시지를 **마우스 우클릭** → **[앱]** → **`파일 바로보기`** 클릭!'
+          },
+          {
+            name: '2️⃣ 최근 문서 자동 탐색 (/view)',
+            value: '채팅창에 **/view** 를 치면 현재 채널의 최근 50개 메시지 중 문서를 자동으로 찾아 실행 카드를 띄워줍니다.'
+          },
+          {
+            name: '3️⃣ 지원 파일 포맷',
+            value: '• `📄 HTML`: Zero-Eval 네이티브 렌더러 (웹앱, 대시보드)\n• `📑 PDF`: Mozilla PDF.js v3 (목차 트리, 텍스트 마이닝, 페이지 점프)\n• `📝 Markdown`: Marked + Highlight.js + Mermaid 다이어그램\n• `📊 PowerPoint`: OOXML 네이티브 엔진 (.pptx 1:1 벡터 렌더링, 목차 카드)'
+          },
+          {
+            name: '4️⃣ 뷰어 내부 조작 팁',
+            value: '• **📑 목차 버튼**: 좌측 도킹형 사이드바로 전체 목차 및 슬라이드 탐색\n• **[ 1 ] / 14 입력창**: 원하는 페이지 번호 입력 후 Enter로 즉시 점프\n• **🔄 파일 전환 바**: 뷰어를 닫지 않고 채널의 다른 문서로 즉시 전환'
+          }
+        )
+        .setFooter({ text: 'Doc Viewer • 100% Serverless' });
+
+      return await interaction.reply({ embeds: [helpEmbed], flags: MessageFlags.Ephemeral });
+    }
+
+    // 1. 슬래시 명령어 (/view 및 기존 /html 호환) 처리: 채팅방 최근 문서 자동 탐색 또는 특정 메시지 지정
     if (interaction.commandName === 'view' || interaction.commandName === 'html') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 

@@ -57,6 +57,13 @@ async function registerCommands() {
       ]
     },
     {
+      name: '도움말',
+      type: 1, // CHAT_INPUT (옵션 없는 단독 명령어 -> 프로필 모달 칩으로 즉시 표시)
+      description: 'Doc Viewer 사용법 및 지원 파일 목록 안내',
+      integration_types: [0, 1],
+      contexts: [0, 1, 2]
+    },
+    {
       name: '파일 바로보기',
       type: 3, // MESSAGE Context Menu (우클릭)
       integration_types: [0, 1],
