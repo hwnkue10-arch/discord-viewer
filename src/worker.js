@@ -283,13 +283,17 @@ function bridgeInlineEventHandlers(rawHtml) {
   return processed;
 }
 
-// 메모리 세션 캐시 (폴백용 - 채널별 격리)
+// 메모리 세션 캐시 (폴백용 - 채널 및 액티비티 인스턴스 격리)
 const channelSessions = new Map();
+const instanceSessions = new Map();
 
 // 세션 저장 헬퍼 (Cloudflare KV + 로컬 메모리)
-async function saveSession(env, sessionData, channelId, userId, attachmentId) {
+async function saveSession(env, sessionData, channelId, userId, attachmentId, instanceId) {
   if (channelId) {
     channelSessions.set(channelId, sessionData);
+  }
+  if (instanceId) {
+    instanceSessions.set(instanceId, sessionData);
   }
 
   if (env && env.SESSIONS) {
@@ -305,6 +309,9 @@ async function saveSession(env, sessionData, channelId, userId, attachmentId) {
       if (attachmentId) {
         puts.push(env.SESSIONS.put(`att:${attachmentId}`, jsonStr, { expirationTtl: 86400 }));
       }
+      if (instanceId) {
+        puts.push(env.SESSIONS.put(`inst:${instanceId}`, jsonStr, { expirationTtl: 86400 }));
+      }
       await Promise.allSettled(puts);
     } catch (e) {
       console.error('[KV saveSession error]', e);
@@ -312,14 +319,21 @@ async function saveSession(env, sessionData, channelId, userId, attachmentId) {
   }
 }
 
-// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백 - 채널/유저 엄격 격리)
-async function getSession(env, channelId, userId) {
+// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백 - instance_id 1순위 다인 참여 지원)
+async function getSession(env, channelId, userId, instanceId) {
   if (env && env.SESSIONS) {
     try {
+      // 1순위: 디스코드 다인 액티비티 세션 고유 방 번호 (instance_id)
+      if (instanceId) {
+        const val = await env.SESSIONS.get(`inst:${instanceId}`);
+        if (val) return JSON.parse(val);
+      }
+      // 2순위: 채널 격리 세션
       if (channelId) {
         const val = await env.SESSIONS.get(`chan:${channelId}`);
         if (val) return JSON.parse(val);
       }
+      // 3순위: 유저 세션
       if (userId) {
         const val = await env.SESSIONS.get(`user:${userId}`);
         if (val) return JSON.parse(val);
@@ -329,6 +343,9 @@ async function getSession(env, channelId, userId) {
     }
   }
 
+  if (instanceId && instanceSessions.has(instanceId)) {
+    return instanceSessions.get(instanceId);
+  }
   if (channelId && channelSessions.has(channelId)) {
     return channelSessions.get(channelId);
   }
@@ -681,10 +698,11 @@ export default {
     let targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
     let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
     const activityChannelId = url.searchParams.get('channel_id');
+    const activityInstanceId = url.searchParams.get('instance_id');
 
-    // 1) channel_id 또는 Cloudflare KV 세션에서 CDN URL 복원 (채널 격리)
-    if (!targetUrl && activityChannelId) {
-      const sess = await getSession(env, activityChannelId, null);
+    // 1) instance_id (동일 액티비티 방 참여자 우선) 또는 channel_id 세션에서 CDN URL 복원
+    if (!targetUrl && (activityInstanceId || activityChannelId)) {
+      const sess = await getSession(env, activityChannelId, null, activityInstanceId);
       if (sess) {
         targetUrl = sess.cdnUrl;
         fileTitle = sess.fileName;
@@ -707,13 +725,18 @@ export default {
             if (att) {
               targetUrl = att.url;
               fileTitle = att.filename || att.name;
-              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null);
+              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null, null, activityInstanceId);
             }
           }
         }
       } catch (e) {
         console.error('Channel fetch error:', e);
       }
+    }
+
+    // 3) 세션이 확인되었고 instance_id가 존재한다면, 다른 참여자들이 동일하게 들어올 수 있도록 instance_id 세션 동기화 저장
+    if (targetUrl && activityInstanceId) {
+      await saveSession(env, { cdnUrl: targetUrl, fileName: fileTitle }, activityChannelId, null, null, activityInstanceId);
     }
 
     if (!targetUrl) {

@@ -17,8 +17,18 @@ let latestSession = {
   updatedAt: new Date().toISOString()
 };
 
+// 채널 및 액티비티 인스턴스(방 번호)별 세션 맵
+const channelSessions = new Map();
+const instanceSessions = new Map();
+
 function setLatestSession(sessionData) {
   latestSession = { ...latestSession, ...sessionData };
+  if (sessionData.channelId) {
+    channelSessions.set(sessionData.channelId, sessionData);
+  }
+  if (sessionData.instanceId) {
+    instanceSessions.set(sessionData.instanceId, sessionData);
+  }
 }
 
 // 외부 에셋(Tailwind CSS, 구글 폰트, JS 라이브러리 등) 인메모리 캐시
@@ -149,8 +159,39 @@ async function handleRenderRequest(req, res) {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
-  const targetUrl = req.query.cdn_url || req.query.url || latestSession.cdnUrl;
-  let fileTitle = req.query.title || latestSession.fileName || 'Discord HTML Runner';
+  const activityInstanceId = req.query.instance_id;
+  const activityChannelId = req.query.channel_id;
+
+  let targetUrl = req.query.cdn_url || req.query.url;
+  let fileTitle = req.query.title;
+
+  // 1. instance_id로 조회 (동일 액티비티 참여자 우선 공유)
+  if (!targetUrl && activityInstanceId && instanceSessions.has(activityInstanceId)) {
+    const instSess = instanceSessions.get(activityInstanceId);
+    targetUrl = instSess.cdnUrl;
+    fileTitle = instSess.fileName;
+  }
+
+  // 2. channel_id로 조회
+  if (!targetUrl && activityChannelId && channelSessions.has(activityChannelId)) {
+    const chanSess = channelSessions.get(activityChannelId);
+    targetUrl = chanSess.cdnUrl;
+    fileTitle = chanSess.fileName;
+  }
+
+  // 3. 폴백: latestSession
+  if (!targetUrl) {
+    targetUrl = latestSession.cdnUrl;
+    fileTitle = latestSession.fileName || 'Discord HTML Runner';
+  }
+
+  // 방장이든 참여자이든, 유효한 URL과 instance_id가 있으면 동일 세션 참여자를 위해 캐싱
+  if (activityInstanceId && targetUrl) {
+    instanceSessions.set(activityInstanceId, {
+      cdnUrl: targetUrl,
+      fileName: fileTitle || 'Discord HTML Runner'
+    });
+  }
 
   try {
     let rawHtml = '';
