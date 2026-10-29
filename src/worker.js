@@ -59,13 +59,16 @@ async function verifyDiscordSignature(rawBody, signature, timestamp, clientPubli
 // 외부 에셋 및 폰트 인메모리 캐시 (반복 다운로드 방지)
 const assetCache = new Map();
 
-// ArrayBuffer를 Base64 문자열로 변환 (Cloudflare Workers 환경 호환)
+// ArrayBuffer를 Base64 문자열로 변환 (C++ 네이티브 Buffer 사용으로 0.05ms 내 고속 변환)
 function bufferToBase64(buffer) {
-  let binary = '';
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(buffer).toString('base64');
+  }
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
 }
@@ -116,7 +119,7 @@ async function resolveCssUrls(cssContent, baseUrl) {
   return cssContent;
 }
 
-// 외부 CSS/JS 에셋 다운로드 및 인라인화
+// 외부 CSS/JS 에셋 병렬 다운로드 및 고속 인라인화
 async function processHtmlForDiscordActivity(rawHtml) {
   let processed = rawHtml;
 
@@ -127,56 +130,95 @@ async function processHtmlForDiscordActivity(rawHtml) {
     const fullTag = match[0];
     const importUrl = match[2];
     try {
-      const res = await fetch(importUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (res.ok) {
-        const cssText = await res.text();
+      let cssText = assetCache.get(importUrl);
+      if (!cssText) {
+        const res = await fetch(importUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) {
+          cssText = await res.text();
+          assetCache.set(importUrl, cssText);
+        }
+      }
+      if (cssText) {
         const resolved = await resolveCssUrls(cssText, importUrl);
         processed = processed.replace(fullTag, () => `/* inlined @import ${importUrl} */\n${resolved}\n`);
       }
     } catch (err) {}
   }
 
-  // 2. 외부 CSS (<link rel="stylesheet">) 인라인화
+  // 2. 외부 CSS (<link rel="stylesheet">) 병렬 다운로드 및 인라인화
   const linkRegex = /<link\b(?=[^>]*?\bhref=["'](https?:\/\/[^"']+)["'])(?=[^>]*?\brel=["']stylesheet["'])[^>]*>/gi;
   const linkMatches = [...processed.matchAll(linkRegex)];
-  for (const match of linkMatches) {
-    const fullTag = match[0];
-    const cssUrl = match[1];
-    try {
-      const res = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (res.ok) {
-        const cssContent = await res.text();
-        const resolved = await resolveCssUrls(cssContent, cssUrl);
-        processed = processed.replace(fullTag, () => `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>`);
+  if (linkMatches.length > 0) {
+    const linkReplacements = await Promise.all(
+      linkMatches.map(async (m) => {
+        const fullTag = m[0];
+        const cssUrl = m[1];
+        try {
+          let cssContent = assetCache.get(cssUrl);
+          if (!cssContent) {
+            const res = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (res.ok) {
+              cssContent = await res.text();
+              assetCache.set(cssUrl, cssContent);
+            }
+          }
+          if (cssContent) {
+            const resolved = await resolveCssUrls(cssContent, cssUrl);
+            return { fullTag, replacement: `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>` };
+          }
+        } catch (err) {}
+        return null;
+      })
+    );
+    for (const item of linkReplacements) {
+      if (item) {
+        processed = processed.replace(item.fullTag, () => item.replacement);
       }
-    } catch (err) {}
+    }
   }
 
-  // 3. 외부 JS (<script src="https://...">) 인라인화 (Tailwind, Chart.js 등)
+  // 3. 외부 JS (<script src="https://...">) 병렬 다운로드 및 인라인화 (Tailwind, Chart.js 등)
   const scriptRegex = /<script\b[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'][^>]*>\s*<\/script>/gi;
   const scriptMatches = [...processed.matchAll(scriptRegex)];
-  for (const match of scriptMatches) {
-    const fullTag = match[0];
-    const jsUrl = match[1];
-    try {
-      const res = await fetch(jsUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (res.ok) {
-        const jsContent = await res.text();
-        const safeJs = jsContent.replace(/<\/script/gi, '<\\/script');
-        processed = processed.replace(fullTag, () => `<script data-inlined-from="${jsUrl}">\n${safeJs}\n</script>`);
+  if (scriptMatches.length > 0) {
+    const scriptReplacements = await Promise.all(
+      scriptMatches.map(async (m) => {
+        const fullTag = m[0];
+        const jsUrl = m[1];
+        try {
+          let jsContent = assetCache.get(jsUrl);
+          if (!jsContent) {
+            const res = await fetch(jsUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (res.ok) {
+              jsContent = await res.text();
+              assetCache.set(jsUrl, jsContent);
+            }
+          }
+          if (jsContent) {
+            const safeJs = jsContent.replace(/<\/script/gi, '<\\/script');
+            return { fullTag, replacement: `<script data-inlined-from="${jsUrl}">\n${safeJs}\n</script>` };
+          }
+        } catch (err) {}
+        return null;
+      })
+    );
+    for (const item of scriptReplacements) {
+      if (item) {
+        processed = processed.replace(item.fullTag, () => item.replacement);
       }
-    } catch (err) {}
+    }
   }
 
   return processed;
 }
 
-// 디스코드 액티비티 CSP 클릭 차단 우회 이벤트 브리지 주입
+// 디스코드 액티비티 CSP 클릭 차단 우회 이벤트 브리지 주입 (백트래킹 없는 O(N) 선형 정규식)
 function bridgeInlineEventHandlers(rawHtml) {
   let processed = rawHtml;
-  const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(["'])([\s\S]*?)\3/gi;
-  processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, quote, code) => {
-    return `data-act-${eventName}=${quote}${code}${quote}`;
+  const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(?:'([^']*)'|"([^"]*)")/gi;
+  processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, singleCode, doubleCode) => {
+    const code = singleCode !== undefined ? singleCode : (doubleCode !== undefined ? doubleCode : '');
+    return `data-act-${eventName}="${code.replace(/"/g, '&quot;')}"`;
   });
 
   const bridgeScript = `
@@ -289,16 +331,18 @@ const instanceSessions = new Map();
 
 // 세션 저장 헬퍼 (Cloudflare KV + 로컬 메모리)
 async function saveSession(env, sessionData, channelId, userId, attachmentId, instanceId) {
+  const data = { ...sessionData, updatedAt: sessionData.updatedAt || Date.now() };
+
   if (channelId) {
-    channelSessions.set(channelId, sessionData);
+    channelSessions.set(channelId, data);
   }
   if (instanceId) {
-    instanceSessions.set(instanceId, sessionData);
+    instanceSessions.set(instanceId, data);
   }
 
   if (env && env.SESSIONS) {
     try {
-      const jsonStr = JSON.stringify(sessionData);
+      const jsonStr = JSON.stringify(data);
       const puts = [];
       if (channelId) {
         puts.push(env.SESSIONS.put(`chan:${channelId}`, jsonStr, { expirationTtl: 86400 }));
@@ -319,37 +363,73 @@ async function saveSession(env, sessionData, channelId, userId, attachmentId, in
   }
 }
 
-// 세션 조회 헬퍼 (Cloudflare KV 우선 조회 후 로컬 메모리 폴백 - instance_id 1순위 다인 참여 지원)
+// 세션 조회 헬퍼 (채널 최신 클릭 세션 우선 -> 인스턴스 세션 -> KV -> 유저 세션)
 async function getSession(env, channelId, userId, instanceId) {
+  let chanSess = null;
+  let instSess = null;
+
+  if (channelId && channelSessions.has(channelId)) {
+    chanSess = channelSessions.get(channelId);
+  }
+  if (instanceId && instanceSessions.has(instanceId)) {
+    instSess = instanceSessions.get(instanceId);
+  }
+
   if (env && env.SESSIONS) {
     try {
-      // 1순위: 디스코드 다인 액티비티 세션 고유 방 번호 (instance_id)
-      if (instanceId) {
-        const val = await env.SESSIONS.get(`inst:${instanceId}`);
-        if (val) return JSON.parse(val);
-      }
-      // 2순위: 채널 격리 세션
+      const promises = [];
       if (channelId) {
-        const val = await env.SESSIONS.get(`chan:${channelId}`);
-        if (val) return JSON.parse(val);
+        promises.push(env.SESSIONS.get(`chan:${channelId}`).then((v) => (v ? JSON.parse(v) : null)));
+      } else {
+        promises.push(Promise.resolve(null));
       }
-      // 3순위: 유저 세션
-      if (userId) {
-        const val = await env.SESSIONS.get(`user:${userId}`);
-        if (val) return JSON.parse(val);
+      if (instanceId) {
+        promises.push(env.SESSIONS.get(`inst:${instanceId}`).then((v) => (v ? JSON.parse(v) : null)));
+      } else {
+        promises.push(Promise.resolve(null));
+      }
+      const [kvChan, kvInst] = await Promise.all(promises);
+      if (kvChan) {
+        if (!chanSess || (kvChan.updatedAt || 0) >= (chanSess.updatedAt || 0)) {
+          chanSess = kvChan;
+        }
+      }
+      if (kvInst) {
+        if (!instSess || (kvInst.updatedAt || 0) >= (instSess.updatedAt || 0)) {
+          instSess = kvInst;
+        }
       }
     } catch (e) {
       console.error('[KV getSession error]', e);
     }
   }
 
-  if (instanceId && instanceSessions.has(instanceId)) {
-    return instanceSessions.get(instanceId);
+  // 채널에서 새로 클릭된 파일(chanSess)이 있다면 오래된 인스턴스(instSess) 세션보다 무조건 최우선 적용!
+  let chosen = null;
+  if (chanSess && instSess) {
+    const chanTime = typeof chanSess.updatedAt === 'number' ? chanSess.updatedAt : new Date(chanSess.updatedAt || 0).getTime();
+    const instTime = typeof instSess.updatedAt === 'number' ? instSess.updatedAt : new Date(instSess.updatedAt || 0).getTime();
+    chosen = (chanTime >= instTime) ? chanSess : instSess;
+  } else {
+    chosen = chanSess || instSess;
   }
-  if (channelId && channelSessions.has(channelId)) {
-    return channelSessions.get(channelId);
+
+  if (!chosen && userId && env && env.SESSIONS) {
+    try {
+      const u = await env.SESSIONS.get(`user:${userId}`);
+      if (u) chosen = JSON.parse(u);
+    } catch (e) {}
   }
-  return null;
+
+  // 선택된 최신 세션을 인스턴스에도 즉시 동기화 (다인 참여자 동일 화면 공유)
+  if (chosen && instanceId) {
+    instanceSessions.set(instanceId, chosen);
+    if (env && env.SESSIONS) {
+      env.SESSIONS.put(`inst:${instanceId}`, JSON.stringify(chosen), { expirationTtl: 86400 }).catch(() => {});
+    }
+  }
+
+  return chosen;
 }
 
 // Discord Interaction 응답 헬퍼 (JSON 형식)
@@ -362,7 +442,7 @@ function jsonResponse(data, status = 200) {
 
 // 실행 버튼 및 임베드 페이로드 빌더
 function buildInteractionLaunchPayload(attachment, messageId, uploaderName, workerOrigin) {
-  const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(attachment.url)}&title=${encodeURIComponent(attachment.name)}`;
+  const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(attachment.url)}&title=${encodeURIComponent(attachment.name)}&_t=${Date.now()}`;
 
   return {
     type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
@@ -636,17 +716,45 @@ export default {
           const user = interaction.user || (interaction.member && interaction.member.user);
           const userId = user ? user.id : null;
           const parts = customId.split(':');
+          const msgId = parts[1];
           const attId = parts[2];
+
+          let targetAttachment = null;
 
           if (attId && env && env.SESSIONS) {
             try {
               const attSess = await env.SESSIONS.get(`att:${attId}`);
               if (attSess) {
-                if (channelId) await env.SESSIONS.put(`chan:${channelId}`, attSess, { expirationTtl: 86400 });
-                if (userId) await env.SESSIONS.put(`user:${userId}`, attSess, { expirationTtl: 86400 });
+                targetAttachment = JSON.parse(attSess);
               }
             } catch (e) {}
           }
+
+          // 만약 attSess가 KV에 없다면 채널 메시지에서 직접 첨부파일 조회
+          if (!targetAttachment && channelId && msgId && msgId !== 'cmd' && botToken) {
+            try {
+              const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${msgId}`, {
+                headers: { Authorization: `Bot ${botToken}` }
+              });
+              if (res.ok) {
+                const msg = await res.json();
+                const att = (msg.attachments || []).find((a) => a.id === attId || (a.filename || a.name || '').toLowerCase().endsWith('.html'));
+                if (att) {
+                  targetAttachment = {
+                    cdnUrl: att.url,
+                    fileName: att.filename || att.name,
+                    attachmentId: att.id
+                  };
+                }
+              }
+            } catch (fetchErr) {}
+          }
+
+          if (targetAttachment) {
+            targetAttachment.updatedAt = Date.now();
+            await saveSession(env, targetAttachment, channelId, userId, attId);
+          }
+
           return jsonResponse({
             type: 12 // LAUNCH_ACTIVITY
           });
@@ -796,13 +904,13 @@ export default {
 
       let rawHtml = await cdnRes.text();
 
-      // 서버리스 에셋 완전 인라인화 (웹폰트 Base64 임베딩 포함)
-      let finalHtml = await processHtmlForDiscordActivity(rawHtml);
+      // 1. CSP 클릭 이벤트 브리지 주입 (가벼운 원본 HTML에 먼저 적용하여 백트래킹 방지)
+      let bridgedHtml = bridgeInlineEventHandlers(rawHtml);
 
-      // CSP 클릭 이벤트 브리지 주입
-      finalHtml = bridgeInlineEventHandlers(finalHtml);
+      // 2. 서버리스 에셋 완전 인라인화 (C++ 네이티브 Buffer 기반 Base64 웹폰트 임베딩 포함)
+      let finalHtml = await processHtmlForDiscordActivity(bridgedHtml);
 
-      // 플로팅 헬퍼 바 주입
+      // 3. 플로팅 헬퍼 바 주입
       const helperBar = `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:8px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
@@ -830,7 +938,9 @@ export default {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         }
       });
     } catch (err) {

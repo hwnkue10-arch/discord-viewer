@@ -159,6 +159,16 @@
     }
 
     loadAndRenderHtml();
+
+    // 창이 닫히거나 벗어날 때 iframe 메모리 및 잔상 완전 초기화
+    function cleanupIframe() {
+      const frame = document.getElementById('render-frame');
+      if (frame) {
+        frame.srcdoc = '';
+      }
+    }
+    window.addEventListener('pagehide', cleanupIframe);
+    window.addEventListener('beforeunload', cleanupIframe);
   </script>
 </body>
 </html>

@@ -295,13 +295,13 @@ client.on('interactionCreate', async (interaction) => {
       fileName: freshFileName,
       cdnUrl: freshCdnUrl,
       requestedBy: interaction.user.username,
-      updatedAt: new Date().toISOString()
+      updatedAt: Date.now()
     });
 
     const publicBaseUrl = (
       process.env.PUBLIC_ACTIVITY_URL || `http://localhost:${process.env.PORT || 3000}`
     ).replace(/\/$/, '');
-    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Discord HTML Runner')}`;
+    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Discord HTML Runner')}&_t=${Date.now()}`;
 
     // 1) [⚡ 디스코드 내부 팝업으로 즉시 실행] 버튼을 누른 경우 -> 로켓 아이콘 없이 즉시 액티비티 팝업 실행!
     if (isPopup) {

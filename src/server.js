@@ -22,12 +22,13 @@ const channelSessions = new Map();
 const instanceSessions = new Map();
 
 function setLatestSession(sessionData) {
-  latestSession = { ...latestSession, ...sessionData };
-  if (sessionData.channelId) {
-    channelSessions.set(sessionData.channelId, sessionData);
+  const data = { ...sessionData, updatedAt: sessionData.updatedAt || Date.now() };
+  latestSession = { ...latestSession, ...data };
+  if (data.channelId) {
+    channelSessions.set(data.channelId, data);
   }
-  if (sessionData.instanceId) {
-    instanceSessions.set(sessionData.instanceId, sessionData);
+  if (data.instanceId) {
+    instanceSessions.set(data.instanceId, data);
   }
 }
 
@@ -74,21 +75,49 @@ async function getAssetContent(url) {
   }
 }
 
-// CSS 내부의 상대 경로 url(...)을 서버 프록시 절대 경로로 변환하여 폰트/이미지 404 및 CSP 차단 완전 방지
-function resolveCssUrls(cssContent, baseUrl) {
-  return cssContent.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (match, quote, relUrl) => {
-    relUrl = relUrl.trim();
+// CSS 내부의 상대 경로 url(...)을 C++ Base64 Data URI 또는 서버 프록시 절대 경로로 변환하여 폰트/이미지 404 및 CSP 차단 완전 방지
+async function resolveCssUrls(cssContent, baseUrl) {
+  const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+  const matches = [...cssContent.matchAll(urlRegex)];
+
+  for (const match of matches) {
+    const fullMatch = match[0];
+    let relUrl = match[2].trim();
+
     if (relUrl.startsWith('data:') || relUrl.startsWith('/api/asset-proxy')) {
-      return match;
+      continue;
     }
+
     try {
       const absUrl = new URL(relUrl, baseUrl).href;
-      // 디스코드 액티비티 CSP가 *.cloudflare.com 등 외부 폰트 도메인을 차단하므로 서버 프록시(/api/asset-proxy)로 직결
-      return `url("/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`;
-    } catch (e) {
-      return match;
-    }
-  });
+
+      // 1. 웹폰트(.woff2, .woff, .ttf)는 C++ 네이티브 Base64 Data URI로 고속 인라인화하여 아이콘 네모(▯) 깨짐 방지!
+      if (absUrl.endsWith('.woff2') || absUrl.endsWith('.woff') || absUrl.endsWith('.ttf')) {
+        let base64Font = assetCache.get(absUrl);
+        if (!base64Font) {
+          try {
+            const fontRes = await fetch(absUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (fontRes.ok) {
+              const fontBuf = await fontRes.arrayBuffer();
+              let mime = 'font/woff2';
+              if (absUrl.endsWith('.woff')) mime = 'font/woff';
+              else if (absUrl.endsWith('.ttf')) mime = 'font/ttf';
+              base64Font = `data:${mime};base64,${Buffer.from(fontBuf).toString('base64')}`;
+              assetCache.set(absUrl, base64Font);
+            }
+          } catch (fontErr) {}
+        }
+        if (base64Font) {
+          cssContent = cssContent.replace(fullMatch, () => `url("${base64Font}")`);
+          continue;
+        }
+      }
+
+      cssContent = cssContent.replace(fullMatch, () => `url("/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`);
+    } catch (e) {}
+  }
+
+  return cssContent;
 }
 
 // [핵심 해결책: 서버 사이드 완전 인라인화]
@@ -106,7 +135,7 @@ async function processHtmlForDiscordActivity(rawHtml) {
     const importCss = await getAssetContent(importUrl);
     if (importCss) {
       console.log(`✅ [인라인 주입] @import 외부 CSS 변환: ${importUrl}`);
-      const resolved = resolveCssUrls(importCss, importUrl);
+      const resolved = await resolveCssUrls(importCss, importUrl);
       processed = processed.replace(fullTag, () => `/* inlined @import ${importUrl} */\n${resolved}\n`);
     }
   }
@@ -120,7 +149,7 @@ async function processHtmlForDiscordActivity(rawHtml) {
     const cssContent = await getAssetContent(cssUrl);
     if (cssContent) {
       console.log(`✅ [인라인 주입] CSS 외부 에셋 변환: ${cssUrl}`);
-      const resolved = resolveCssUrls(cssContent, cssUrl);
+      const resolved = await resolveCssUrls(cssContent, cssUrl);
       processed = processed.replace(fullTag, () => `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>`);
     }
   }
@@ -155,7 +184,7 @@ app.use('/examples', express.static(path.join(__dirname, '..', 'examples')));
 // 중첩 iframe(iframe 안의 iframe)을 완전히 제거하고 디스코드 액티비티 창 자체에 HTML을 1:1 직결 주입합니다.
 // 이로써 Electron의 자식 iframe 클릭 이벤트 유실 버그, null origin, CSP 격리 문제를 원천 차단합니다.
 async function handleRenderRequest(req, res) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
@@ -165,31 +194,47 @@ async function handleRenderRequest(req, res) {
   let targetUrl = req.query.cdn_url || req.query.url;
   let fileTitle = req.query.title;
 
-  // 1. instance_id로 조회 (동일 액티비티 참여자 우선 공유)
-  if (!targetUrl && activityInstanceId && instanceSessions.has(activityInstanceId)) {
-    const instSess = instanceSessions.get(activityInstanceId);
-    targetUrl = instSess.cdnUrl;
-    fileTitle = instSess.fileName;
+  let chanSess = null;
+  let instSess = null;
+
+  if (activityChannelId && channelSessions.has(activityChannelId)) {
+    chanSess = channelSessions.get(activityChannelId);
+  }
+  if (activityInstanceId && instanceSessions.has(activityInstanceId)) {
+    instSess = instanceSessions.get(activityInstanceId);
   }
 
-  // 2. channel_id로 조회
-  if (!targetUrl && activityChannelId && channelSessions.has(activityChannelId)) {
-    const chanSess = channelSessions.get(activityChannelId);
-    targetUrl = chanSess.cdnUrl;
-    fileTitle = chanSess.fileName;
-  }
-
-  // 3. 폴백: latestSession
+  // 1. 세션 우선순위: 채널 최신 클릭 세션이 오래된 인스턴스 세션보다 무조건 우선!
   if (!targetUrl) {
-    targetUrl = latestSession.cdnUrl;
-    fileTitle = latestSession.fileName || 'Discord HTML Runner';
+    let chosen = null;
+    if (chanSess && instSess) {
+      const chanTime = typeof chanSess.updatedAt === 'number' ? chanSess.updatedAt : new Date(chanSess.updatedAt || 0).getTime();
+      const instTime = typeof instSess.updatedAt === 'number' ? instSess.updatedAt : new Date(instSess.updatedAt || 0).getTime();
+      chosen = (chanTime >= instTime) ? chanSess : instSess;
+    } else {
+      chosen = chanSess || instSess;
+    }
+
+    if (!chosen && latestSession && latestSession.cdnUrl) {
+      chosen = latestSession;
+    }
+
+    if (chosen) {
+      targetUrl = chosen.cdnUrl;
+      fileTitle = chosen.fileName;
+      // 동일 방 참여자를 위해 최신 세션 동기화
+      if (activityInstanceId) {
+        instanceSessions.set(activityInstanceId, chosen);
+      }
+    }
   }
 
   // 방장이든 참여자이든, 유효한 URL과 instance_id가 있으면 동일 세션 참여자를 위해 캐싱
   if (activityInstanceId && targetUrl) {
     instanceSessions.set(activityInstanceId, {
       cdnUrl: targetUrl,
-      fileName: fileTitle || 'Discord HTML Runner'
+      fileName: fileTitle || 'Discord HTML Runner',
+      updatedAt: Date.now()
     });
   }
 
@@ -229,11 +274,11 @@ async function handleRenderRequest(req, res) {
       rawHtml = await response.text();
     }
 
-    // 1. Tailwind 컴파일 CSS 등 외부 에셋 서버사이드 완전 인라인화
-    let finalHtml = await processHtmlForDiscordActivity(rawHtml);
+    // 1. 인라인 onclick 등 이벤트 핸들러 보강 (가벼운 원본 HTML에 먼저 적용하여 백트래킹 방지)
+    let bridgedHtml = bridgeInlineEventHandlers(rawHtml);
 
-    // 2. 인라인 onclick 등 이벤트 핸들러 보강
-    finalHtml = bridgeInlineEventHandlers(finalHtml);
+    // 2. 외부 CSS/JS 및 웹폰트 고속 인라인화
+    let finalHtml = await processHtmlForDiscordActivity(bridgedHtml);
 
     // 3. 디스코드 액티비티 상단에 세련된 플로팅 새로고침 헬퍼 바 주입 (CSP 준수 addEventListener 바인딩)
     const helperBar = `
@@ -340,9 +385,10 @@ app.get('/api/asset-proxy', async (req, res) => {
 function bridgeInlineEventHandlers(rawHtml) {
   let processed = rawHtml;
 
-  const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(["'])([\s\S]*?)\3/gi;
-  processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, quote, code) => {
-    return `data-act-${eventName}=${quote}${code}${quote}`;
+  const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(?:'([^']*)'|"([^"]*)")/gi;
+  processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, singleCode, doubleCode) => {
+    const code = singleCode !== undefined ? singleCode : (doubleCode !== undefined ? doubleCode : '');
+    return `data-act-${eventName}="${code.replace(/"/g, '&quot;')}"`;
   });
 
   const bridgeScript = `
