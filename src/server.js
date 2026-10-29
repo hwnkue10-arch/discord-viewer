@@ -91,19 +91,23 @@ async function resolveCssUrls(cssContent, baseUrl) {
     try {
       const absUrl = new URL(relUrl, baseUrl).href;
 
-      // 1. 웹폰트(.woff2, .woff, .ttf)는 C++ 네이티브 Base64 Data URI로 고속 인라인화하여 아이콘 네모(▯) 깨짐 방지!
-      if (absUrl.endsWith('.woff2') || absUrl.endsWith('.woff') || absUrl.endsWith('.ttf')) {
+      // 1. 웹폰트: 최신 고압축 .woff2 포맷만 Base64로 우선 인라인화하여 CPU/크기 낭비 방지!
+      // (중복된 .woff, .ttf 또는 350KB 초과 대용량 폰트는 HTML 폭증 방지를 위해 프록시로 우회)
+      if (absUrl.endsWith('.woff2')) {
         let base64Font = assetCache.get(absUrl);
         if (!base64Font) {
           try {
-            const fontRes = await fetch(absUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const fontRes = await fetch(absUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0' },
+              signal: AbortSignal.timeout(5000)
+            });
             if (fontRes.ok) {
               const fontBuf = await fontRes.arrayBuffer();
-              let mime = 'font/woff2';
-              if (absUrl.endsWith('.woff')) mime = 'font/woff';
-              else if (absUrl.endsWith('.ttf')) mime = 'font/ttf';
-              base64Font = `data:${mime};base64,${Buffer.from(fontBuf).toString('base64')}`;
-              assetCache.set(absUrl, base64Font);
+              // 350KB 이하의 핵심 웹폰트만 Base64 인라인화
+              if (fontBuf.byteLength <= 350 * 1024) {
+                base64Font = `data:font/woff2;base64,${Buffer.from(fontBuf).toString('base64')}`;
+                assetCache.set(absUrl, base64Font);
+              }
             }
           } catch (fontErr) {}
         }
@@ -154,22 +158,34 @@ async function processHtmlForDiscordActivity(rawHtml) {
     }
   }
 
-  // 3. 외부 JS (<script src="https://..."></script>) -> <script> 내부 코드로 완전 인라인화 (Tailwind Play CDN, Chart.js 등 100% 실행 보장)
-  const scriptRegex = /<script\b[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'][^>]*>\s*<\/script>/gi;
+  // 3. 외부 JS (<script src="https://..."></script>) -> <script> 내부 코드로 완전 인라인화 (type="module" 보존)
+  const scriptRegex = /<script\b([^>]*?)\bsrc=["'](https?:\/\/[^"']+)["']([^>]*)>\s*<\/script>/gi;
   const scriptMatches = [...processed.matchAll(scriptRegex)];
   for (const match of scriptMatches) {
     const fullTag = match[0];
-    const jsUrl = match[1];
+    const attrsBefore = match[1] || '';
+    const jsUrl = match[2];
+    const attrsAfter = match[3] || '';
 
     const jsContent = await getAssetContent(jsUrl);
     if (jsContent) {
       console.log(`✅ [인라인 주입] JS 외부 에셋 변환: ${jsUrl} (~${Math.round(jsContent.length / 1024)} KB)`);
-      // 스크립트 내부의 </script> 문자열이 브라우저 HTML 파서를 깨트리지 않도록 치환
       const safeJs = jsContent.replace(/<\/script/gi, '<\\/script');
-      // $ 패턴($&, $', $1 등)으로 인한 문자열 오염을 막기 위해 반드시 함수() => 형태로 교체
-      processed = processed.replace(fullTag, () => `<script data-inlined-from="${jsUrl}">\n${safeJs}\n</script>`);
+      const allAttrs = attrsBefore + ' ' + attrsAfter;
+      const isModule = /type=["']module["']/i.test(allAttrs);
+      const extraAttr = isModule ? ' type="module"' : '';
+      processed = processed.replace(fullTag, () => `<script data-inlined-from="${jsUrl}"${extraAttr}>\n${safeJs}\n</script>`);
     }
   }
+
+  // 4. 외부 이미지 (<img src="https://...">) -> 디스코드 CSP 차단 방지를 위해 /api/asset-proxy 프록시로 변환
+  const imgRegex = /<img\b(?=[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'])[^>]*>/gi;
+  processed = processed.replace(imgRegex, (fullTag) => {
+    return fullTag.replace(/\bsrc=["'](https?:\/\/[^"']+)["']/i, (srcMatch, imgUrl) => {
+      if (imgUrl.includes('/api/asset-proxy')) return srcMatch;
+      return `src="/api/asset-proxy?url=${encodeURIComponent(imgUrl)}"`;
+    });
+  });
 
   return processed;
 }
@@ -396,45 +412,52 @@ function bridgeInlineEventHandlers(rawHtml) {
 (function() {
   var lastTrigger = 0;
 
-  function handleInteraction(e) {
-    var btn = e.target.closest('[data-act-click], [onclick], button, a');
-    if (!btn) return;
+  function handleInteraction(e, evType) {
+    var target = e.target.closest('[data-act-' + evType + '], [on' + evType + '], button, a, form, input, select, textarea');
+    if (!target) return;
 
     var now = Date.now();
-    if (now - lastTrigger < 50) return;
-    lastTrigger = now;
+    if (evType === 'click' && now - lastTrigger < 40) return;
+    if (evType === 'click') lastTrigger = now;
 
-    var code = btn.getAttribute('data-act-click') || btn.getAttribute('onclick') || '';
-    var txt = (btn.innerText || btn.textContent || '').trim();
-    var btnId = btn.id || '';
+    var code = target.getAttribute('data-act-' + evType) || target.getAttribute('on' + evType) || '';
+    if (!code && evType === 'click') {
+      code = target.getAttribute('data-act-click') || target.getAttribute('onclick') || '';
+    }
+    if (!code) return;
 
-    // 1. 카운터 전용 직접 DOM 조작 (디스코드 CSP가 모든 스크립트를 차단해도 100% 무조건 카운트 증가 보장!)
-    if (code.includes('updateCount(10)') || txt.includes('+10') || btnId === 'btn-add-10') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-        cEl.innerText = (cur + 10).toLocaleString();
-        e.preventDefault(); e.stopPropagation(); return;
+    var txt = (target.innerText || target.textContent || '').trim();
+    var btnId = target.id || '';
+
+    // 카운터 직접 조작
+    if (evType === 'click') {
+      if (code.includes('updateCount(10)') || txt.includes('+10') || btnId === 'btn-add-10') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
+          cEl.innerText = (cur + 10).toLocaleString();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
-    }
-    if (code.includes('updateCount(1)') || code.includes('updateCount') || txt.includes('+1') || btnId === 'btn-add-1') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-        cEl.innerText = (cur + 1).toLocaleString();
-        e.preventDefault(); e.stopPropagation(); return;
+      if (code.includes('updateCount(1)') || code.includes('updateCount') || txt.includes('+1') || btnId === 'btn-add-1') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
+          cEl.innerText = (cur + 1).toLocaleString();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
-    }
-    if (code.includes('resetCount') || txt.includes('초기화') || btnId === 'btn-reset') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        cEl.innerText = '0';
-        e.preventDefault(); e.stopPropagation(); return;
+      if (code.includes('resetCount') || txt.includes('초기화') || btnId === 'btn-reset') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          cEl.innerText = '0';
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
     }
 
     try {
-      // 2. 일반 함수 호출 패턴 (예: myFunction(arg1, arg2))
+      // 일반 함수 호출 패턴 (예: fn(arg1, arg2))
       var fnMatch = code.match(/^([a-zA-Z0-9_$.]+)\\s*\\((.*)\\)\\s*;?$/);
       if (fnMatch) {
         var fnName = fnMatch[1];
@@ -459,23 +482,21 @@ function bridgeInlineEventHandlers(rawHtml) {
             } catch (err) {
               args = rawArgs.split(',').map(function(a) {
                 var s = a.trim();
-                s = s.replace(/^[\\s('"]+|[\\s)'"]+$/g, '');
-                return s;
+                return s.replace(/^[\\s('"]+|[\\s)'"]+$/g, '');
               });
             }
           }
-          targetFn.apply(btn, args);
-          e.preventDefault();
-          e.stopPropagation();
+          targetFn.apply(target, args);
+          if (evType === 'submit') e.preventDefault();
           return;
         }
       }
 
-      // 3. 일반 JS 코드 블록 실행 시도
+      // 일반 JS 인라인 코드 블록 실행
       if (code) {
         try {
-          new Function('event', code).call(btn, e);
-          e.preventDefault();
+          new Function('event', code).call(target, e);
+          if (evType === 'submit') e.preventDefault();
         } catch (evalErr) {}
       }
     } catch (bridgeErr) {
@@ -483,8 +504,12 @@ function bridgeInlineEventHandlers(rawHtml) {
     }
   }
 
-  // 캡처링 단계에서 클릭 이벤트 즉각 감지 및 실행
-  document.addEventListener('click', handleInteraction, true);
+  // 클릭, 입력(input), 값 변경(change), 폼 전송(submit), 키보드 입력(keydown/keyup) 전역 이벤트 리스너 등록
+  ['click', 'change', 'input', 'submit', 'keydown', 'keyup'].forEach(function(evName) {
+    document.addEventListener(evName, function(e) {
+      handleInteraction(e, evName);
+    }, true);
+  });
 })();
 </script>
 `;

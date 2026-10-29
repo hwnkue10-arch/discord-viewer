@@ -73,8 +73,31 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
+// 외부 에셋 안전 다운로드 헬퍼 (Cloudflare 무료 플랜 50개 서브리퀘스트 한도 보호 및 타임아웃)
+async function safeFetchAsset(url, subrequestTracker, timeoutMs = 4000) {
+  if (assetCache.has(url)) {
+    return { ok: true, cached: true, content: assetCache.get(url) };
+  }
+  if (subrequestTracker && subrequestTracker.count >= subrequestTracker.max) {
+    return null;
+  }
+  if (subrequestTracker) {
+    subrequestTracker.count++;
+  }
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) return null;
+    return res;
+  } catch (e) {
+    return null;
+  }
+}
+
 // CSS 내부 상대경로 웹폰트/에셋을 data: Base64 URI로 완전 인라인화하거나 상대경로 프록시로 변환
-async function resolveCssUrls(cssContent, baseUrl) {
+async function resolveCssUrls(cssContent, baseUrl, subrequestTracker) {
   const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
   const matches = [...cssContent.matchAll(urlRegex)];
 
@@ -89,21 +112,22 @@ async function resolveCssUrls(cssContent, baseUrl) {
     try {
       const absUrl = new URL(relUrl, baseUrl).href;
 
-      // 1. 웹폰트(.woff2, .woff, .ttf)는 data: Base64 URI로 100% 인라인화하여 디스코드 CSP 차단 원천 차단!
-      if (absUrl.endsWith('.woff2') || absUrl.endsWith('.woff') || absUrl.endsWith('.ttf')) {
+      // 1. 웹폰트: 최신 고압축 .woff2 포맷만 Base64로 우선 인라인화하여 CPU/크기 낭비 방지!
+      // (중복된 .woff, .ttf 또는 350KB 초과 대용량 폰트는 HTML 폭증 방지를 위해 프록시로 우회)
+      if (absUrl.endsWith('.woff2')) {
         let base64Font = assetCache.get(absUrl);
         if (!base64Font) {
-          try {
-            const fontRes = await fetch(absUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-            if (fontRes.ok) {
-              const fontBuf = await fontRes.arrayBuffer();
-              let mime = 'font/woff2';
-              if (absUrl.endsWith('.woff')) mime = 'font/woff';
-              else if (absUrl.endsWith('.ttf')) mime = 'font/ttf';
-              base64Font = `data:${mime};base64,${bufferToBase64(fontBuf)}`;
+          const fontRes = await safeFetchAsset(absUrl, subrequestTracker, 5000);
+          if (fontRes && !fontRes.cached) {
+            const fontBuf = await fontRes.arrayBuffer();
+            // 350KB 이하의 핵심 웹폰트만 Base64 인라인화
+            if (fontBuf.byteLength <= 350 * 1024) {
+              base64Font = `data:font/woff2;base64,${bufferToBase64(fontBuf)}`;
               assetCache.set(absUrl, base64Font);
             }
-          } catch (fontErr) {}
+          } else if (fontRes && fontRes.cached) {
+            base64Font = fontRes.content;
+          }
         }
         if (base64Font) {
           cssContent = cssContent.replace(fullMatch, () => `url("${base64Font}")`);
@@ -111,7 +135,7 @@ async function resolveCssUrls(cssContent, baseUrl) {
         }
       }
 
-      // 2. 기타 일반 리소스는 상대경로 프록시(/api/asset-proxy)로 연결 ('self' 도메인 유지)
+      // .woff, .ttf, 350KB 초과 폰트 및 기타 에셋은 상대경로 프록시(/api/asset-proxy)로 연결하여 CSP 통과
       cssContent = cssContent.replace(fullMatch, () => `url("/api/asset-proxy?url=${encodeURIComponent(absUrl)}")`);
     } catch (e) {}
   }
@@ -119,9 +143,10 @@ async function resolveCssUrls(cssContent, baseUrl) {
   return cssContent;
 }
 
-// 외부 CSS/JS 에셋 병렬 다운로드 및 고속 인라인화
+// 외부 CSS/JS 에셋 병렬 다운로드 및 고속 인라인화 (서브리퀘스트 상한 보호)
 async function processHtmlForDiscordActivity(rawHtml) {
   let processed = rawHtml;
+  const subrequestTracker = { count: 0, max: 35 };
 
   // 1. @import 외부 폰트/CSS 인라인화
   const importRegex = /@import\s+url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)\s*;?/gi;
@@ -132,14 +157,16 @@ async function processHtmlForDiscordActivity(rawHtml) {
     try {
       let cssText = assetCache.get(importUrl);
       if (!cssText) {
-        const res = await fetch(importUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (res.ok) {
+        const res = await safeFetchAsset(importUrl, subrequestTracker, 4000);
+        if (res && !res.cached) {
           cssText = await res.text();
           assetCache.set(importUrl, cssText);
+        } else if (res && res.cached) {
+          cssText = res.content;
         }
       }
       if (cssText) {
-        const resolved = await resolveCssUrls(cssText, importUrl);
+        const resolved = await resolveCssUrls(cssText, importUrl, subrequestTracker);
         processed = processed.replace(fullTag, () => `/* inlined @import ${importUrl} */\n${resolved}\n`);
       }
     } catch (err) {}
@@ -156,14 +183,16 @@ async function processHtmlForDiscordActivity(rawHtml) {
         try {
           let cssContent = assetCache.get(cssUrl);
           if (!cssContent) {
-            const res = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-            if (res.ok) {
+            const res = await safeFetchAsset(cssUrl, subrequestTracker, 4000);
+            if (res && !res.cached) {
               cssContent = await res.text();
               assetCache.set(cssUrl, cssContent);
+            } else if (res && res.cached) {
+              cssContent = res.content;
             }
           }
           if (cssContent) {
-            const resolved = await resolveCssUrls(cssContent, cssUrl);
+            const resolved = await resolveCssUrls(cssContent, cssUrl, subrequestTracker);
             return { fullTag, replacement: `<style data-inlined-from="${cssUrl}">\n${resolved}\n</style>` };
           }
         } catch (err) {}
@@ -177,26 +206,33 @@ async function processHtmlForDiscordActivity(rawHtml) {
     }
   }
 
-  // 3. 외부 JS (<script src="https://...">) 병렬 다운로드 및 인라인화 (Tailwind, Chart.js 등)
-  const scriptRegex = /<script\b[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'][^>]*>\s*<\/script>/gi;
+  // 3. 외부 JS (<script src="https://...">) 병렬 다운로드 및 인라인화 (type="module" 등 속성 보존)
+  const scriptRegex = /<script\b([^>]*?)\bsrc=["'](https?:\/\/[^"']+)["']([^>]*)>\s*<\/script>/gi;
   const scriptMatches = [...processed.matchAll(scriptRegex)];
   if (scriptMatches.length > 0) {
     const scriptReplacements = await Promise.all(
       scriptMatches.map(async (m) => {
         const fullTag = m[0];
-        const jsUrl = m[1];
+        const attrsBefore = m[1] || '';
+        const jsUrl = m[2];
+        const attrsAfter = m[3] || '';
         try {
           let jsContent = assetCache.get(jsUrl);
           if (!jsContent) {
-            const res = await fetch(jsUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-            if (res.ok) {
+            const res = await safeFetchAsset(jsUrl, subrequestTracker, 5000);
+            if (res && !res.cached) {
               jsContent = await res.text();
               assetCache.set(jsUrl, jsContent);
+            } else if (res && res.cached) {
+              jsContent = res.content;
             }
           }
           if (jsContent) {
             const safeJs = jsContent.replace(/<\/script/gi, '<\\/script');
-            return { fullTag, replacement: `<script data-inlined-from="${jsUrl}">\n${safeJs}\n</script>` };
+            const allAttrs = attrsBefore + ' ' + attrsAfter;
+            const isModule = /type=["']module["']/i.test(allAttrs);
+            const extraAttr = isModule ? ' type="module"' : '';
+            return { fullTag, replacement: `<script data-inlined-from="${jsUrl}"${extraAttr}>\n${safeJs}\n</script>` };
           }
         } catch (err) {}
         return null;
@@ -209,10 +245,19 @@ async function processHtmlForDiscordActivity(rawHtml) {
     }
   }
 
+  // 4. 외부 이미지 (<img src="https://...">) -> 디스코드 CSP 차단 방지를 위해 /api/asset-proxy 프록시로 변환
+  const imgRegex = /<img\b(?=[^>]*?\bsrc=["'](https?:\/\/[^"']+)["'])[^>]*>/gi;
+  processed = processed.replace(imgRegex, (fullTag) => {
+    return fullTag.replace(/\bsrc=["'](https?:\/\/[^"']+)["']/i, (srcMatch, imgUrl) => {
+      if (imgUrl.includes('/api/asset-proxy')) return srcMatch;
+      return `src="/api/asset-proxy?url=${encodeURIComponent(imgUrl)}"`;
+    });
+  });
+
   return processed;
 }
 
-// 디스코드 액티비티 CSP 클릭 차단 우회 이벤트 브리지 주입 (백트래킹 없는 O(N) 선형 정규식)
+// 디스코드 액티비티 CSP 클릭/입력 차단 우회 이벤트 브리지 주입 (선형 O(N) 정규식 + 다중 이벤트 지원)
 function bridgeInlineEventHandlers(rawHtml) {
   let processed = rawHtml;
   const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(?:'([^']*)'|"([^"]*)")/gi;
@@ -226,45 +271,52 @@ function bridgeInlineEventHandlers(rawHtml) {
 (function() {
   var lastTrigger = 0;
 
-  function handleInteraction(e) {
-    var btn = e.target.closest('[data-act-click], [onclick], button, a');
-    if (!btn) return;
+  function handleInteraction(e, evType) {
+    var target = e.target.closest('[data-act-' + evType + '], [on' + evType + '], button, a, form, input, select, textarea');
+    if (!target) return;
 
     var now = Date.now();
-    if (now - lastTrigger < 50) return;
-    lastTrigger = now;
+    if (evType === 'click' && now - lastTrigger < 40) return;
+    if (evType === 'click') lastTrigger = now;
 
-    var code = btn.getAttribute('data-act-click') || btn.getAttribute('onclick') || '';
-    var txt = (btn.innerText || btn.textContent || '').trim();
-    var btnId = btn.id || '';
+    var code = target.getAttribute('data-act-' + evType) || target.getAttribute('on' + evType) || '';
+    if (!code && evType === 'click') {
+      code = target.getAttribute('data-act-click') || target.getAttribute('onclick') || '';
+    }
+    if (!code) return;
+
+    var txt = (target.innerText || target.textContent || '').trim();
+    var btnId = target.id || '';
 
     // 카운터 직접 조작
-    if (code.includes('updateCount(10)') || txt.includes('+10') || btnId === 'btn-add-10') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-        cEl.innerText = (cur + 10).toLocaleString();
-        e.preventDefault(); e.stopPropagation(); return;
+    if (evType === 'click') {
+      if (code.includes('updateCount(10)') || txt.includes('+10') || btnId === 'btn-add-10') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
+          cEl.innerText = (cur + 10).toLocaleString();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
-    }
-    if (code.includes('updateCount(1)') || code.includes('updateCount') || txt.includes('+1') || btnId === 'btn-add-1') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-        cEl.innerText = (cur + 1).toLocaleString();
-        e.preventDefault(); e.stopPropagation(); return;
+      if (code.includes('updateCount(1)') || code.includes('updateCount') || txt.includes('+1') || btnId === 'btn-add-1') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
+          cEl.innerText = (cur + 1).toLocaleString();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
-    }
-    if (code.includes('resetCount') || txt.includes('초기화') || btnId === 'btn-reset') {
-      var cEl = document.getElementById('counter');
-      if (cEl) {
-        cEl.innerText = '0';
-        e.preventDefault(); e.stopPropagation(); return;
+      if (code.includes('resetCount') || txt.includes('초기화') || btnId === 'btn-reset') {
+        var cEl = document.getElementById('counter');
+        if (cEl) {
+          cEl.innerText = '0';
+          e.preventDefault(); e.stopPropagation(); return;
+        }
       }
     }
 
     try {
-      // 일반 함수 호출 패턴
+      // 일반 함수 호출 패턴 (예: fn(arg1, arg2))
       var fnMatch = code.match(/^([a-zA-Z0-9_$.]+)\\s*\\((.*)\\)\\s*;?$/);
       if (fnMatch) {
         var fnName = fnMatch[1];
@@ -289,22 +341,21 @@ function bridgeInlineEventHandlers(rawHtml) {
             } catch (err) {
               args = rawArgs.split(',').map(function(a) {
                 var s = a.trim();
-                s = s.replace(/^[\\s('"]+|[\\s)'"]+$/g, '');
-                return s;
+                return s.replace(/^[\\s('"]+|[\\s)'"]+$/g, '');
               });
             }
           }
-          targetFn.apply(btn, args);
-          e.preventDefault();
-          e.stopPropagation();
+          targetFn.apply(target, args);
+          if (evType === 'submit') e.preventDefault();
           return;
         }
       }
 
+      // 일반 JS 인라인 코드 블록 실행
       if (code) {
         try {
-          new Function('event', code).call(btn, e);
-          e.preventDefault();
+          new Function('event', code).call(target, e);
+          if (evType === 'submit') e.preventDefault();
         } catch (evalErr) {}
       }
     } catch (bridgeErr) {
@@ -312,7 +363,12 @@ function bridgeInlineEventHandlers(rawHtml) {
     }
   }
 
-  document.addEventListener('click', handleInteraction, true);
+  // 클릭, 입력(input), 값 변경(change), 폼 전송(submit), 키보드 입력(keydown/keyup) 전역 이벤트 리스너 등록
+  ['click', 'change', 'input', 'submit', 'keydown', 'keyup'].forEach(function(evName) {
+    document.addEventListener(evName, function(e) {
+      handleInteraction(e, evName);
+    }, true);
+  });
 })();
 </script>
 `;
