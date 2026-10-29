@@ -122,6 +122,7 @@ discord-viewer/
 ├── assets/                   # 공식 봇 디자인 자산 (아이콘 및 배너)
 │   ├── bot_icon.jpg          # 1:1 앱 아바타 아이콘
 │   └── bot_banner.jpg        # 16:9 와이드 프로필 배너
+├── examples/                 # 테스트용 샘플 문서 파일 (HTML, PDF, MD, PPTX)
 ├── public/
 │   └── activity_shell.html   # 액티비티 쉘 & 로컬 렌더러
 ├── src/
@@ -134,6 +135,9 @@ discord-viewer/
 │   └── index.js              # [로컬 모드] 로컬 웹 서버(server.js)와 봇(bot.js) 동시 구동
 ├── scripts/
 │   └── register_commands.js  # 디스코드 API 전역 슬래시 명령어 동기화 스크립트 (npm run register)
+├── .env.example              # 로컬 개발 환경용 환경변수 템플릿
+├── .env                      # 로컬 실행 환경변수 (Git 미포함, 토큰/키 저장)
+├── wrangler.toml.example     # Cloudflare Workers 설정 템플릿
 ├── wrangler.toml             # Cloudflare Workers 배포 환경 설정
 ├── package.json              # 패키지 의존성 및 실행 스크립트 정의
 └── README.md                 # 프로젝트 문서 및 사용 가이드
@@ -159,13 +163,16 @@ discord-viewer/
 ### 3. 프로젝트 설정 및 배포
 
 ```bash
-# 1) 의존성 설치
+# 1) 프로젝트 루트 폴더(discord-viewer/)에서 의존성 설치
 npm install
 
-# 2) 전역 슬래시 명령어(/view) 및 우클릭 메뉴 등록
+# 2) wrangler.toml 환경변수 설정
+# wrangler.toml 파일을 열고 발급받은 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
+
+# 3) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록
 npm run register
 
-# 3) Cloudflare Workers 배포
+# 4) Cloudflare Workers 배포
 npm run deploy
 ```
 
@@ -181,13 +188,60 @@ npm run deploy
 
 ## 💻 로컬 개발 환경 실행 (Node.js 모드)
 
-Cloudflare Workers 없이 내 컴퓨터에서 로컬로 Express 서버와 디스코드 봇을 구동할 수 있습니다.
+Cloudflare Workers 배포 없이, 개발자의 PC 환경에서 Express 웹 서버와 `discord.js` 봇을 직접 실행하여 기능 디버깅 및 개발을 진행할 수 있습니다.
 
+### 1. 실행 위치
+* 모든 터미널 명령어는 **프로젝트 루트 폴더(`discord-viewer/`)**에서 실행합니다.
+
+### 2. 사전 패키지 설치 & 환경변수 설정
 ```bash
-# 1) 로컬 환경변수 설정 (.env 파일에 토큰 입력)
-# 2) 로컬 서버 및 봇 동시 구동
+# 1) 의존성 패키지 설치
+npm install
+
+# 2) 환경변수 템플릿 복사 (.env 생성)
+# Windows (PowerShell / CMD):
+copy .env.example .env
+# macOS / Linux:
+cp .env.example .env
+```
+
+### 3. `.env` 파일 설정
+생성된 `.env` 파일을 텍스트 에디터로 열고, 디스코드 개발자 포털에서 발급받은 정보를 입력합니다:
+```env
+# 디스코드 봇 토큰 (Bot 탭 -> Reset Token)
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
+
+# 디스코드 애플리케이션 ID (General Information -> Application ID)
+DISCORD_CLIENT_ID=your_discord_application_client_id_here
+
+# 디스코드 퍼블릭 키 (General Information -> Public Key)
+DISCORD_PUBLIC_KEY=your_discord_public_key_here
+
+# 로컬 Express 웹 서버 포트 (기본값: 3000)
+PORT=3000
+```
+
+### 4. 슬래시 명령어 등록 (최초 1회)
+디스코드 본사 서버에 `/view`, `/도움말`, 우클릭 메뉴를 등록합니다:
+```bash
+npm run register
+```
+
+### 5. 로컬 서버 및 봇 동시 실행
+```bash
 npm run dev
 ```
+* 코드 변경 시 자동으로 재시작되는 Node.js `--watch` 감지 모드로 구동됩니다.
+* 실행 시 **로컬 Express 웹 서버(포트 3000)**와 **디스코드 게이트웨이 봇**이 동시에 실행됩니다.
+* 이제 봇이 온라인 상태가 되며, 디스코드 채팅방에서 `/view`나 파일 업로드 이벤트에 실시간 응답합니다.
+
+> 💡 **로컬 환경에서 인앱 액티비티(팝업 뷰어)까지 테스트하려면?**  
+> 디스코드 액티비티는 브라우저 보안 규격상 외부에서 접근 가능한 HTTPS 주소를 필요로 합니다. [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)을 사용하면 로컬 포트를 즉시 안전한 HTTPS로 외부에 노출할 수 있습니다:
+> ```bash
+> # Cloudflare Tunnel 실행 (설치 없이 npx로 즉시 구동)
+> npx cloudflared tunnel --url http://localhost:3000
+> ```
+> 터미널에 출력된 임시 HTTPS 주소(예: `https://xxxx.trycloudflare.com`)를 `.env` 파일의 `PUBLIC_ACTIVITY_URL`에 입력하고, 개발자 포털의 Activities URL Mappings에 등록하면 로컬 PC에서도 인앱 팝업 뷰어가 완벽히 구동됩니다.
 
 ---
 
