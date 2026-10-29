@@ -1,7 +1,7 @@
 {
-  "name": "discord-html-activity-bot",
+  "name": "discord-viewer",
   "version": "1.0.0",
-  "description": "Zero-Domain Discord CDN + Activity Real-time HTML/CSS/JS Renderer Bot (Method B)",
+  "description": "Discord In-App Activity & Real-time Viewer (HTML/CSS, PDF & Documents)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

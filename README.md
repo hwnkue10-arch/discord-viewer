@@ -1,6 +1,6 @@
-# 🚀 Discord HTML/CSS In-App Activity Bot
+# 🚀 Discord In-App Activity Viewer (HTML & Documents)
 
-외부 웹 호스팅이나 24시간 가동 서버 없이, **디스코드 CDN (`cdn.discordapp.com`)**과 **디스코드 액티비티(In-App Activity)** 및 **Cloudflare Workers**를 결합하여 채팅방에 업로드된 `.html` 파일을 디스코드 내부 팝업 및 브라우저에서 즉시 실행하는 100% 서버리스 프로젝트입니다.
+외부 웹 호스팅이나 24시간 가동 서버 없이, **디스코드 CDN (`cdn.discordapp.com`)**과 **디스코드 액티비티(In-App Activity)** 및 **Cloudflare Workers**를 결합하여 채팅방에 업로드된 `.html` 파일 및 문서들을 디스코드 내부 팝업 및 브라우저에서 즉시 실행하고 조회하는 100% 서버리스 프로젝트입니다.
 
 ---
 
@@ -64,7 +64,7 @@
 ## 📁 프로젝트 구조
 
 ```text
-discord-html-activity-bot/
+discord-viewer/
 ├── public/
 │   └── activity_shell.html   # 액티비티 쉘 & 외부 브라우저 렌더러 (Iframe 메모리 잔상 자동 초기화)
 ├── src/
