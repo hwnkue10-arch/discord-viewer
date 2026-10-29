@@ -19,14 +19,17 @@
 
 * **⚡ 디스코드 내부 즉시 실행 (Native In-App Activity)**
   * 복잡한 중첩 iframe 없이 디스코드 액티비티 창에 1:1 직결 렌더링되어 **마우스 클릭, 폼 입력, 탭 전환, 애니메이션, JS 상호작용이 100% 네이티브**로 동작합니다.
-* **🎨 외부 에셋 & 웹폰트 완전 인라인화 (CSP 차단 0%)**
-  * 디스코드의 엄격한 보안 정책(CSP)으로 인해 차단되는 외부 CDN(Tailwind CSS, FontAwesome, Chart.js 등)을 워커가 실시간 다운로드 후 문서 내부에 자동 주입합니다.
-  * 웹폰트(`.woff2`, `.woff`, `.ttf`)를 **Base64 Data URI**로 변환하여 임베딩하므로 폰트/아이콘 깨짐(`▯`)이 전혀 발생하지 않습니다.
+* **🎨 외부 에셋 & 웹폰트 초고속 인라인화 (CSP 차단 0%)**
+  * 디스코드의 엄격한 보안 정책(CSP)으로 인해 차단되는 외부 CDN(Tailwind CSS, FontAwesome, Chart.js 등)을 워커/서버가 실시간 병렬 다운로드 후 문서 내부에 자동 주입합니다.
+  * C++ 네이티브 `Buffer` 기반 고속 인라인화로 웹폰트(`.woff2`, `.woff`, `.ttf`)를 **Base64 Data URI**로 임베딩하여 폰트/아이콘 네모 깨짐(`▯`)을 완벽하게 방지합니다.
+* **🚀 대용량(150KB+) 파일 최적화 (Cloudflare Error 1102 해결)**
+  * 재앙적 백트래킹이 없는 선형 O(N) 정규식과 네이티브 C++ 변환을 적용하여, 수백 KB 대용량 파일도 **CPU 1~2ms 이내로 초고속 처리**합니다.
 * **☁️ 100% 무(無)서버 아키텍처 (Cloudflare Workers)**
   * 상시 켜두어야 하는 컴퓨터나 유료 서버가 전혀 필요 없습니다.
   * 전 세계 300개 이상의 글로벌 에지 데이터센터에서 365일 24시간 상시 가동됩니다 (유지비 0원).
-* **🔒 채널 & 파일별 완벽한 프라이버시 격리 (Workers KV)**
-  * Cloudflare KV(`SESSIONS`)를 통해 채널별 / 첨부파일 ID별로 세션을 엄격하게 분리하여, 다른 채널이나 다른 사용자의 HTML 파일이 서로 노출되지 않습니다.
+* **🔒 채널 & 세션 실시간 격리 및 다인 참여 동기화 (Workers KV)**
+  * Cloudflare KV(`SESSIONS`)와 실시간 타임스탬프(`updatedAt`)를 통해 채널별로 가장 최근에 선택된 파일을 정확히 추적하여 이전 파일이 열리는 캐시 꼬임을 원천 차단합니다.
+  * 동일한 액티비티 방(`instance_id`)에 접속한 다른 참여자들에게도 실시간으로 최신 파일 화면이 동기화됩니다.
 * **🌐 인터넷 새 창 열기 지원**
   * 디스코드 팝업 외에도 `[🌐 인터넷 새 창으로 열기]` 버튼을 통해 PC/모바일 브라우저 전체화면으로도 즉시 실행할 수 있습니다.
 
@@ -54,14 +57,20 @@
 
 ```text
 discord-html-activity-bot/
+├── public/
+│   └── activity_shell.html   # 액티비티 쉘 & 외부 브라우저 렌더러 (Iframe 메모리 잔상 자동 초기화)
 ├── src/
-│   ├── worker.js             # Cloudflare Workers 서버리스 메인 엔드포인트
-│   │                         # (Ed25519 서명 검증, Interactions 웹훅, 실시간 HTML/에셋 인라인화)
-│   ├── bot.js                # 로컬 개발/명령어 등록 헬퍼
-│   └── register_commands.js  # 디스코드 슬래시 명령어 등록 스크립트
-├── wrangler.toml.example     # Cloudflare Workers 설정 템플릿
-├── package.json              # 패키지 설정 및 명령어 스크립트
-└── README.md                 # 프로젝트 문서
+│   ├── worker.js             # [서버리스 모드] Cloudflare Workers 메인 엔드포인트
+│   │                         #  - Ed25519 요청 서명 검증 및 Interactions 웹훅 수신
+│   │                         #  - 실시간 병렬 에셋 인라인화 및 C++ Base64 웹폰트 임베딩
+│   │                         #  - Cloudflare KV(SESSIONS) 기반 채널/인스턴스 세션 관리
+│   ├── server.js             # [로컬 모드] Express 웹 서버 (실시간 렌더링 & 에셋 프록시)
+│   ├── bot.js                # [로컬 모드] discord.js 봇 (채팅방 자동 감지, /html 커맨드, 우클릭 메뉴)
+│   └── index.js              # [로컬 모드] 로컬 웹 서버(server.js)와 봇(bot.js) 동시 구동 엔트리포인트
+├── .env.example              # 로컬 구동용 환경변수 설정 템플릿
+├── wrangler.toml.example     # Cloudflare Workers 배포 설정 템플릿
+├── package.json              # 패키지 의존성 및 실행 스크립트 정의
+└── README.md                 # 프로젝트 문서 및 사용 가이드
 ```
 
 ---
@@ -127,9 +136,31 @@ npx wrangler deploy
    * **Interactions Endpoint URL**에 배포된 워커 주소 입력 (예: `https://your-worker.workers.dev`) → `Save Changes` 클릭 (자동으로 Ed25519 서명 검증 수행)
 2. **Activities 탭:**
    * **URL Mappings** 타깃 주소 또는 액티비티 URL에 동일한 워커 주소 등록
-3. **명령어 등록:**
+3. **디스코드 명령어 등록:**
+   * 로컬에서 `.env` 파일에 봇 토큰과 클라이언트 ID를 설정한 후 로컬 봇을 1회 실행하면 `/html` 슬래시 명령어와 우클릭 컨텍스트 메뉴가 전역에 자동 등록됩니다:
    ```bash
-   node src/register_commands.js
+   npm run dev
    ```
+
+---
+
+## 💻 로컬 개발 환경 실행 (Node.js 모드)
+
+Cloudflare Workers 없이 내 컴퓨터에서 Express 서버와 디스코드 봇을 로컬로 구동하고 테스트할 수 있습니다.
+
+1. `.env.example`을 복사하여 `.env` 파일을 생성하고 디스코드 정보를 입력합니다:
+   ```env
+   DISCORD_BOT_TOKEN=본인의_디스코드_봇_토큰
+   DISCORD_CLIENT_ID=본인의_디스코드_클라이언트_ID
+   DISCORD_PUBLIC_KEY=본인의_디스코드_퍼블릭_키
+   PORT=3000
+   ```
+2. 로컬 서버 및 봇 구동:
+   ```bash
+   npm run dev
+   ```
+3. 액티비티 화면 로컬 미리보기: `http://localhost:3000/activity_shell.html?sample=true`
+
+---
 
 이제 24시간 컴퓨터를 켜둘 필요 없이 언제 어디서나 디스코드에서 HTML 파일이 즉시 실행됩니다!
