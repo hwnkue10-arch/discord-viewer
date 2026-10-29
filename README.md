@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.com/oauth2/authorize?client_id=1564602208753029191"><img src="https://img.shields.io/badge/Discord-Doc_Viewer_추가하기-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord Bot"></a>
+  <a href="https://discord.com/oauth2/authorize?client_id=1564602208753029191&scope=bot%20applications.commands"><img src="https://img.shields.io/badge/Discord-Doc_Viewer_추가하기-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord Bot"></a>
   <a href="https://workers.cloudflare.com/"><img src="https://img.shields.io/badge/Cloudflare_Workers-100%25_Serverless-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers"></a>
   <img src="https://img.shields.io/badge/Server_Cost-유지비_0원-22c55e?style=for-the-badge" alt="Cost 0">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License MIT">
@@ -26,7 +26,7 @@
 
 아래 링크를 통해 봇을 원하는 서버에 초대하거나, **내 계정에 추가(User Install)**하여 어디서든 사용할 수 있습니다:
 
-👉 **[Doc Viewer 공식 추가하기 (클릭)](https://discord.com/oauth2/authorize?client_id=1564602208753029191)**
+👉 **[Doc Viewer 공식 추가하기 (클릭)](https://discord.com/oauth2/authorize?client_id=1564602208753029191&scope=bot%20applications.commands)**
 
 * **⭐ 내 계정에 추가 (User Install - 강력 추천):** 봇이 서버에 없어도 모든 서버, 개인 DM, 단체방에서 마우스 우클릭으로 즉시 사용 가능
 * **🏢 서버에 추가 (Guild Install):** 관리자 권한이 있는 서버에 봇을 추가하여 모든 멤버가 함께 사용
