@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="assets/bot_banner.jpg" width="100%" alt="Doc Viewer Banner" />
-</p>
-
-<p align="center">
-  <img src="assets/bot_icon.jpg" width="110" height="110" style="border-radius: 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" alt="Doc Viewer Icon" />
+  <img src="assets/bot_icon.jpg" width="96" height="96" style="border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);" alt="Doc Viewer Icon" />
 </p>
 
 <h1 align="center">Doc Viewer (Discord In-App Multi-Format Viewer)</h1>
@@ -23,6 +19,10 @@
 ---
 
 ## 🔗 공식 봇 초대 및 설치 링크 (Invite & Install)
+
+<p align="center">
+  <img src="assets/bot_banner.jpg" width="560" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); margin: 8px 0 16px;" alt="Doc Viewer Banner" />
+</p>
 
 아래 링크를 통해 봇을 원하는 서버에 초대하거나, **내 계정에 추가(User Install)**하여 어디서든 사용할 수 있습니다:
 
