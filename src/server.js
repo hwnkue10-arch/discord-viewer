@@ -77,10 +77,71 @@ function isBlockedTarget(urlStr) {
   }
 }
 
-// 런타임 심(Shim) 스크립트: 페이지 로드 후 실행되는 fetch, XHR, 동적 DOM 생성 및 샌드박스 스토리지 보정
-const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
+// 경로 보존형 프록시 URL 생성 함수
+function toProxyUrl(absUrl) {
+  try {
+    const u = new URL(absUrl);
+    if (!['http:', 'https:'].includes(u.protocol)) return absUrl;
+    const proto = u.protocol.replace(':', '');
+    return `/api/proxy/${proto}/${u.host}${u.pathname}${u.search}`;
+  } catch (e) {
+    return `/api/asset-proxy?url=${encodeURIComponent(absUrl)}`;
+  }
+}
+
+// 프록시 요청으로부터 원본 대상 URL 역추출 함수
+function extractTargetUrl(requestUrl, req) {
+  const u = new URL(requestUrl, 'http://localhost');
+  if (u.pathname.startsWith('/api/proxy/')) {
+    const match = u.pathname.match(/^\/api\/proxy\/(https?)\/([^\/]+)(?:\/(.*))?$/i);
+    if (match) {
+      const proto = match[1];
+      const host = match[2];
+      const rest = match[3] ? '/' + match[3] : '';
+      return `${proto}://${host}${rest}${u.search}`;
+    }
+  }
+  if (u.pathname === '/api/asset-proxy') {
+    return req ? req.query.url : u.searchParams.get('url');
+  }
+  return null;
+}
+
+// eval()이나 new Function() 없이 순수 addEventListener 코드를 생성하는 CSP 완전 무결 이벤트 리스너 생성기
+function buildGeneratedListenersScript(listenerEntries) {
+  if (!listenerEntries || listenerEntries.length === 0) return '';
+  let codeLines = [];
+  for (const item of listenerEntries) {
+    const safeCode = item.code.replace(/<\/script/gi, '<\\/script');
+    codeLines.push(`  (function() {
+    var el = document.querySelector('[data-aid="${item.aid}"]');
+    if (el) {
+      el.addEventListener('${item.event}', function(event) {
+        ${item.event === 'submit' ? 'event.preventDefault();' : ''}
+        ${safeCode}
+      });
+    }
+  })();`);
+  }
+
+  return `<script id="discord-generated-event-listeners">
 (function() {
-  var P = '/api/asset-proxy?url=';
+  function initListeners() {
+${codeLines.join('\n')}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initListeners);
+  } else {
+    initListeners();
+  }
+})();
+</script>`;
+}
+
+// 런타임 심(Shim) 스크립트: 페이지 로드 후 실행되는 fetch, XHR, 동적 DOM 생성 및 샌드박스 스토리지 보정 + Discord SDK 연동
+function buildRuntimeShimScript(discordClientId) {
+  return `<script id="discord-activity-runtime-shim">
+(function() {
   function abs(u) {
     try { return new URL(u, document.baseURI).href; } catch(e) { return null; }
   }
@@ -90,10 +151,17 @@ const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
   }
   function wrap(u) {
     var a = ext(u);
-    return a ? P + encodeURIComponent(a) : u;
+    if (!a) return u;
+    try {
+      var parsed = new URL(a);
+      var proto = parsed.protocol.replace(':', '');
+      return '/api/proxy/' + proto + '/' + parsed.host + parsed.pathname + parsed.search;
+    } catch(err) {
+      return '/api/asset-proxy?url=' + encodeURIComponent(a);
+    }
   }
 
-  // 1. fetch 및 XMLHttpRequest 가로채기 (런타임 API 호출 CSP 우회)
+  // 1. fetch 및 XMLHttpRequest 가로채기
   var _fetch = window.fetch;
   if (_fetch) {
     window.fetch = function(input, init) {
@@ -111,7 +179,7 @@ const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
     return _open.apply(this, [method, wrap(url)].concat(rest));
   };
 
-  // 2. 동적 DOM 에셋 생성 가로채기 (new Image(), createElement('script') 등)
+  // 2. 동적 DOM 에셋 생성 가로채기
   function patch(proto, prop) {
     var d = Object.getOwnPropertyDescriptor(proto, prop);
     if (d && d.set) {
@@ -137,7 +205,7 @@ const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
     return _sa.call(this, name, val);
   };
 
-  // 3. iframe 샌드박스 내 Storage 차단 대응 (인메모리 안전 폴백)
+  // 3. iframe 샌드박스 내 Storage 차단 대응
   try {
     localStorage.setItem('__t', '1');
     localStorage.removeItem('__t');
@@ -159,23 +227,41 @@ const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
     } catch(err) {}
   }
 
-  // 4. 모달 다이얼로그 폴백 (디스코드 팝업 내 멈춤 방지)
+  // 4. 모달 다이얼로그 폴백
   window.alert = function(msg) { console.log('[Alert]', msg); };
   window.confirm = function(msg) { console.log('[Confirm]', msg); return true; };
   window.prompt = function(msg, def) { console.log('[Prompt]', msg); return def || null; };
 
-  // 5. 외부 링크 클릭 시 디스코드 SDK 외부 브라우저 창 연동
+  // 5. Discord SDK 연동 및 외부 링크 안전 오픈
+  var cid = '${discordClientId || ''}';
+  if (window.self !== window.top && window.DiscordSDK && cid) {
+    try {
+      window.discordSdk = new window.DiscordSDK.DiscordSDK(cid);
+      window.discordSdk.ready().catch(function(e) {
+        console.warn('[DiscordSDK] ready error:', e);
+      });
+    } catch(sdkErr) {}
+  }
+
+  window.__discordOpenExternal = function(url) {
+    if (window.discordSdk && window.discordSdk.commands && window.discordSdk.commands.openExternalLink) {
+      window.discordSdk.commands.openExternalLink({ url: url }).catch(function() {
+        window.open(url, '_blank');
+      });
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
   document.addEventListener('click', function(e) {
     var a = e.target.closest('a[href]');
     if (!a) return;
     var href = a.getAttribute('href');
-    if (href && /^https?:/i.test(href) && !href.includes('/api/asset-proxy')) {
+    if (href && /^https?:/i.test(href) && !href.startsWith('/api/')) {
       var full = abs(href);
       if (full && new URL(full).origin !== location.origin) {
-        if (window.discordSdk && window.discordSdk.commands && window.discordSdk.commands.openExternalLink) {
-          e.preventDefault();
-          window.discordSdk.commands.openExternalLink({ url: full }).catch(function() {});
-        }
+        e.preventDefault();
+        window.__discordOpenExternal(full);
       }
     }
   }, true);
@@ -194,64 +280,23 @@ const RUNTIME_SHIM_SCRIPT = `<script id="discord-activity-runtime-shim">
   });
 })();
 </script>`;
+}
 
-// 디스코드 액티비티 전역 이벤트 위임 브리지 (CSP 안전 eval-free 함수 호출 및 인터랙션 보장)
+// 동적 생성 요소 지원용 안전 이벤트 위임 폴백 브리지
 const EVENT_BRIDGE_SCRIPT = `<script id="discord-csp-event-bridge">
 (function() {
-  var lastTrigger = 0;
-
-  function handleInteraction(e, evType) {
-    var target = e.target.closest('[data-act-' + evType + '], [on' + evType + '], button, a, form, input, select, textarea');
+  function handleDynamicInteraction(e, evType) {
+    var target = e.target.closest('[data-act-' + evType + '], form, button, a');
     if (!target) return;
-
-    var now = Date.now();
-    if (evType === 'click' && now - lastTrigger < 40) return;
-    if (evType === 'click') lastTrigger = now;
-
-    var code = target.getAttribute('data-act-' + evType) || target.getAttribute('on' + evType) || '';
-    if (!code && evType === 'click') {
-      code = target.getAttribute('data-act-click') || target.getAttribute('onclick') || '';
-    }
+    var code = target.getAttribute('data-act-' + evType);
     if (!code) return;
 
-    var txt = (target.innerText || target.textContent || '').trim();
-    var btnId = target.id || '';
-
-    // 카운터 직접 조작
-    if (evType === 'click') {
-      if (code.includes('updateCount(10)') || txt.includes('+10') || btnId === 'btn-add-10') {
-        var cEl = document.getElementById('counter');
-        if (cEl) {
-          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-          cEl.innerText = (cur + 10).toLocaleString();
-          e.preventDefault(); e.stopPropagation(); return;
-        }
-      }
-      if (code.includes('updateCount(1)') || code.includes('updateCount') || txt.includes('+1') || btnId === 'btn-add-1') {
-        var cEl = document.getElementById('counter');
-        if (cEl) {
-          var cur = parseInt(cEl.innerText.replace(/,/g, ''), 10) || 0;
-          cEl.innerText = (cur + 1).toLocaleString();
-          e.preventDefault(); e.stopPropagation(); return;
-        }
-      }
-      if (code.includes('resetCount') || txt.includes('초기화') || btnId === 'btn-reset') {
-        var cEl = document.getElementById('counter');
-        if (cEl) {
-          cEl.innerText = '0';
-          e.preventDefault(); e.stopPropagation(); return;
-        }
-      }
-    }
-
     try {
-      // 일반 함수 호출 패턴 (예: fn(arg1, arg2))
       var fnMatch = code.match(/^([a-zA-Z0-9_$.]+)\\s*\\((.*)\\)\\s*;?$/);
       if (fnMatch) {
         var fnName = fnMatch[1];
         var rawArgs = fnMatch[2].trim();
         var targetFn = null;
-
         if (fnName.includes('.')) {
           var parts = fnName.split('.');
           targetFn = window;
@@ -261,7 +306,6 @@ const EVENT_BRIDGE_SCRIPT = `<script id="discord-csp-event-bridge">
         } else {
           targetFn = window[fnName];
         }
-
         if (typeof targetFn === 'function') {
           var args = [];
           if (rawArgs) {
@@ -279,36 +323,31 @@ const EVENT_BRIDGE_SCRIPT = `<script id="discord-csp-event-bridge">
           return;
         }
       }
-
-      // 일반 JS 인라인 코드 블록 실행 시도
-      if (code) {
-        try {
-          new Function('event', code).call(target, e);
-          if (evType === 'submit') e.preventDefault();
-        } catch (evalErr) {}
-      }
+      try {
+        new Function('event', code).call(target, e);
+        if (evType === 'submit') e.preventDefault();
+      } catch (evalErr) {}
     } catch (bridgeErr) {
       console.error('[EventBridge Error]', bridgeErr);
     }
   }
 
-  // 클릭, 입력(input), 값 변경(change), 폼 전송(submit), 키보드 입력(keydown/keyup) 전역 이벤트 리스너 등록
   ['click', 'change', 'input', 'submit', 'keydown', 'keyup'].forEach(function(evName) {
     document.addEventListener(evName, function(e) {
-      handleInteraction(e, evName);
+      handleDynamicInteraction(e, evName);
     }, true);
   });
 })();
 </script>`;
 
-// 플로팅 헬퍼 바 생성 (새로고침 및 인터넷 새 창 바로가기 버튼 포함)
+// 플로팅 헬퍼 바 생성 (새로고침 및 Discord SDK 연동 새 창 바로가기 버튼 포함)
 function buildHelperBar(fileTitle, directUrl) {
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
   <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${fileTitle}</span>
   <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
-  <a id="discord-helper-external-btn" href="${directUrl}" target="_blank" style="background:#0284c7;color:white;text-decoration:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-block;transition:background 0.2s;">🌐 새 창</a>
+  <a id="discord-helper-external-btn" href="${directUrl}" style="background:#0284c7;color:white;text-decoration:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-block;transition:background 0.2s;" onclick="if(window.__discordOpenExternal){window.__discordOpenExternal('${directUrl}');return false;}">🌐 새 창</a>
   <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:13px;font-weight:bold;cursor:pointer;line-height:1;" title="헬퍼 바 숨기기">✕</button>
 </div>
 <script id="discord-helper-bar-script">
@@ -316,46 +355,34 @@ function buildHelperBar(fileTitle, directUrl) {
   var bar = document.getElementById('discord-activity-helper-bar');
   var refreshBtn = document.getElementById('discord-helper-refresh-btn');
   var closeBtn = document.getElementById('discord-helper-close-btn');
-  var extBtn = document.getElementById('discord-helper-external-btn');
-
   if (refreshBtn) refreshBtn.addEventListener('click', function(e) { e.preventDefault(); window.location.reload(); });
   if (closeBtn && bar) closeBtn.addEventListener('click', function(e) { e.preventDefault(); bar.style.display = 'none'; });
-  if (extBtn) {
-    extBtn.addEventListener('click', function(e) {
-      if (window.discordSdk && window.discordSdk.commands && window.discordSdk.commands.openExternalLink) {
-        e.preventDefault();
-        window.discordSdk.commands.openExternalLink({ url: extBtn.href }).catch(function() {
-          window.open(extBtn.href, '_blank');
-        });
-      }
-    });
-  }
 })();
 </script>`;
 }
 
 // 스트리밍 프록시 재작성 기반 디스코드 액티비티 HTML 렌더러
-function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl) {
+function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, discordClientId) {
   let processed = rawHtml;
 
-  // 1. 외부 스크립트 (<script src="https://...">) -> /api/asset-proxy 프록시 주소로 재작성
+  // 1. 외부 스크립트 (<script src="https://...">) -> 경로 보존형 toProxyUrl 주소로 재작성
   processed = processed.replace(/<script\b([^>]*?)\bsrc=["'](https?:\/\/[^"']+)["']([^>]*)>/gi, (m, b, url, a) => {
-    if (url.includes('/api/asset-proxy')) return m;
+    if (url.includes('/api/')) return m;
     let attrs = (b + ' ' + a).replace(/\b(integrity|crossorigin)(=(['"]).*?\3|=[^\s>]+)?/gi, '');
-    return `<script${attrs} src="/api/asset-proxy?url=${encodeURIComponent(url)}">`;
+    return `<script${attrs} src="${toProxyUrl(url)}">`;
   });
 
-  // 2. 외부 스타일시트 (<link rel="stylesheet" href="https://...">) -> /api/asset-proxy 프록시 주소로 재작성
+  // 2. 외부 스타일시트 (<link rel="stylesheet" href="https://...">) -> 경로 보존형 toProxyUrl 주소로 재작성
   processed = processed.replace(/<link\b([^>]*?)\bhref=["'](https?:\/\/[^"']+)["']([^>]*)>/gi, (m, b, url, a) => {
-    if (url.includes('/api/asset-proxy')) return m;
+    if (url.includes('/api/')) return m;
     let attrs = (b + ' ' + a).replace(/\b(integrity|crossorigin)(=(['"]).*?\3|=[^\s>]+)?/gi, '');
-    return `<link${attrs} href="/api/asset-proxy?url=${encodeURIComponent(url)}">`;
+    return `<link${attrs} href="${toProxyUrl(url)}">`;
   });
 
   // 3. 외부 이미지, 영상, 오디오 (<img src="https://..."> 등)
   processed = processed.replace(/<(img|source|video|audio)\b([^>]*?)\bsrc=["'](https?:\/\/[^"']+)["']([^>]*)>/gi, (m, tag, b, url, a) => {
-    if (url.includes('/api/asset-proxy')) return m;
-    return `<${tag}${b} src="/api/asset-proxy?url=${encodeURIComponent(url)}"${a}>`;
+    if (url.includes('/api/')) return m;
+    return `<${tag}${b} src="${toProxyUrl(url)}"${a}>`;
   });
 
   // 4. srcset 외부 주소 프록시 변환
@@ -367,9 +394,9 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUr
       if (!match) return part;
       let url = match[1];
       const descriptor = match[2] || '';
-      if (/^(https?:)?\/\//i.test(url) && !url.includes('/api/asset-proxy')) {
+      if (/^(https?:)?\/\//i.test(url) && !url.includes('/api/')) {
         const full = url.startsWith('//') ? 'https:' + url : url;
-        url = `/api/asset-proxy?url=${encodeURIComponent(full)}`;
+        url = toProxyUrl(full);
       }
       return `${url}${descriptor}`;
     }).join(', ');
@@ -380,32 +407,38 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUr
   processed = processed.replace(/\bstyle=(['"])(.*?)\1/gi, (m, q, styleContent) => {
     if (!styleContent.includes('url(')) return m;
     const replaced = styleContent.replace(/url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi, (um, uq, u) => {
-      if (u.includes('/api/asset-proxy')) return um;
-      return `url("/api/asset-proxy?url=${encodeURIComponent(u)}")`;
+      if (u.includes('/api/')) return um;
+      return `url("${toProxyUrl(u)}")`;
     });
     return `style=${q}${replaced}${q}`;
   });
 
-  // 6. 인라인 이벤트 핸들러 on<event>="..." -> data-act-<event>="..." 변환
+  // 6. 인라인 이벤트 핸들러 on<event>="..." -> data-aid="N" 부여 및 순수 addEventListener 코드 수집
+  const listenerEntries = [];
+  let aidCounter = 0;
   const inlineEventRegex = /\b(on(click|change|submit|input|keydown|keyup))\s*=\s*(?:'([^']*)'|"([^"]*)")/gi;
   processed = processed.replace(inlineEventRegex, (match, fullAttr, eventName, singleCode, doubleCode) => {
     const code = singleCode !== undefined ? singleCode : (doubleCode !== undefined ? doubleCode : '');
-    return `data-act-${eventName}="${code.replace(/"/g, '&quot;')}"`;
+    aidCounter++;
+    listenerEntries.push({ aid: aidCounter, event: eventName, code: code });
+    return `data-aid="${aidCounter}" data-act-${eventName}="${code.replace(/"/g, '&quot;')}"`;
   });
 
-  // 7. <head> 시작 부분에 RUNTIME_SHIM_SCRIPT 주입
+  // 7. <head>에 Discord Embedded App SDK 및 런타임 심 주입
+  const headPayload = `\n<script src="/api/proxy/https/cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@1.8.0/dist/index.min.js"></script>\n${buildRuntimeShimScript(discordClientId)}\n`;
   if (processed.includes('<head>')) {
-    processed = processed.replace('<head>', `<head>\n${RUNTIME_SHIM_SCRIPT}`);
+    processed = processed.replace('<head>', `<head>${headPayload}`);
   } else if (/<head\b[^>]*>/i.test(processed)) {
-    processed = processed.replace(/<head\b[^>]*>/i, `$&\n${RUNTIME_SHIM_SCRIPT}`);
+    processed = processed.replace(/<head\b[^>]*>/i, `$&\n${headPayload}`);
   } else {
-    processed = `<head>${RUNTIME_SHIM_SCRIPT}</head>\n` + processed;
+    processed = `<head>${headPayload}</head>\n` + processed;
   }
 
-  // 8. <body> 끝 부분에 EVENT_BRIDGE_SCRIPT 및 helperBar 주입
+  // 8. <body> 끝 부분에 eval-free 생성 리스너, EVENT_BRIDGE_SCRIPT, helperBar 주입
   const directUrl = `${serverOrigin}/?cdn_url=${encodeURIComponent(targetUrl || '')}&title=${encodeURIComponent(fileTitle || '')}&_t=${Date.now()}`;
   const helperBar = buildHelperBar(fileTitle || 'Discord HTML Runner', directUrl);
-  const bodyEndPayload = `\n${EVENT_BRIDGE_SCRIPT}\n${helperBar}\n`;
+  const generatedScript = buildGeneratedListenersScript(listenerEntries);
+  const bodyEndPayload = `\n${generatedScript}\n${EVENT_BRIDGE_SCRIPT}\n${helperBar}\n`;
 
   if (processed.includes('</body>')) {
     processed = processed.replace('</body>', `${bodyEndPayload}</body>`);
@@ -515,7 +548,7 @@ async function handleRenderRequest(req, res) {
     }
 
     const serverOrigin = `${req.protocol}://${req.get('host')}`;
-    const finalHtml = renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl);
+    const finalHtml = renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(finalHtml);
@@ -549,9 +582,10 @@ app.get('/api/latest-session', (req, res) => {
   res.json(latestSession);
 });
 
-// 외부 에셋 보안 프록시 (/api/asset-proxy)
-app.get('/api/asset-proxy', async (req, res) => {
-  const assetUrl = req.query.url;
+// 외부 에셋 보안 프록시 (/api/proxy/* 및 /api/asset-proxy)
+app.use(['/api/proxy/*', '/api/asset-proxy'], async (req, res) => {
+  const fullReqUrl = req.originalUrl || req.url;
+  const assetUrl = extractTargetUrl(fullReqUrl, req);
   if (!assetUrl) return res.status(400).send('Missing url parameter');
 
   if (isBlockedTarget(assetUrl)) {
@@ -570,12 +604,23 @@ app.get('/api/asset-proxy', async (req, res) => {
       return res.status(response.status).send(`Origin returned ${response.status}`);
     }
 
+    // 응답 크기 제한 (15MB 초과 차단)
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > 15 * 1024 * 1024) {
+      return res.status(413).send('Payload Too Large (>15MB)');
+    }
+
     let contentType = response.headers.get('content-type') || 'application/octet-stream';
     if (assetUrl.endsWith('.woff2')) contentType = 'font/woff2';
     else if (assetUrl.endsWith('.woff')) contentType = 'font/woff';
     else if (assetUrl.endsWith('.ttf')) contentType = 'font/ttf';
     else if (assetUrl.endsWith('.css')) contentType = 'text/css';
-    else if (assetUrl.endsWith('.js')) contentType = 'application/javascript';
+    else if (assetUrl.endsWith('.js') || assetUrl.endsWith('.mjs')) contentType = 'application/javascript';
+
+    // 위험 파일 확장자 차단
+    if (/application\/(x-msdownload|x-dosexec|x-sh)/i.test(contentType)) {
+      return res.status(415).send('Unsupported Media Type');
+    }
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -585,14 +630,14 @@ app.get('/api/asset-proxy', async (req, res) => {
     if (contentType.includes('text/css') || assetUrl.endsWith('.css')) {
       let cssText = await response.text();
       cssText = cssText.replace(/@import\s+url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)\s*;?/gi, (m, q, u) => {
-        return `@import url("/api/asset-proxy?url=${encodeURIComponent(u)}");`;
+        return `@import url("${toProxyUrl(u)}");`;
       });
       cssText = cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q, relUrl) => {
         let trimmed = relUrl.trim();
-        if (trimmed.startsWith('data:') || trimmed.startsWith('/api/asset-proxy')) return m;
+        if (trimmed.startsWith('data:') || trimmed.startsWith('/api/')) return m;
         try {
           const abs = new URL(trimmed, assetUrl).href;
-          return `url("/api/asset-proxy?url=${encodeURIComponent(abs)}")`;
+          return `url("${toProxyUrl(abs)}")`;
         } catch (e) {
           return m;
         }
