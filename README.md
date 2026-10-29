@@ -19,19 +19,27 @@
 
 * **⚡ 디스코드 내부 즉시 실행 (Native In-App Activity)**
   * 복잡한 중첩 iframe 없이 디스코드 액티비티 창에 1:1 직결 렌더링되어 **마우스 클릭, 폼 입력, 탭 전환, 애니메이션, JS 상호작용이 100% 네이티브**로 동작합니다.
-* **🎨 외부 에셋 & 웹폰트 초고속 인라인화 (CSP 차단 0%)**
-  * 디스코드의 엄격한 보안 정책(CSP)으로 인해 차단되는 외부 CDN(Tailwind CSS, FontAwesome, Chart.js 등)을 워커/서버가 실시간 병렬 다운로드 후 문서 내부에 자동 주입합니다.
-  * C++ 네이티브 `Buffer` 기반 고속 인라인화로 웹폰트(`.woff2`, `.woff`, `.ttf`)를 **Base64 Data URI**로 임베딩하여 폰트/아이콘 네모 깨짐(`▯`)을 완벽하게 방지합니다.
-* **🚀 대용량(150KB+) 파일 최적화 (Cloudflare Error 1102 해결)**
-  * 재앙적 백트래킹이 없는 선형 O(N) 정규식과 네이티브 C++ 변환을 적용하여, 수백 KB 대용량 파일도 **CPU 1~2ms 이내로 초고속 처리**합니다.
+* **🛡️ CSP 완전 무결 인라인 이벤트 컴파일 (Zero-Eval Engine)**
+  * 기존 HTML에 작성된 `onclick`, `oninput`, `onsubmit` 등 인라인 이벤트 속성을 `eval()`이나 `new Function()` 없이 순수 `addEventListener` 코드로 자동 컴파일하여, 디스코드의 엄격한 보안 정책(CSP `unsafe-eval`, `unsafe-inline`) 하에서도 모든 버튼과 폼이 완벽히 작동합니다.
+* **🌐 경로 보존형 에셋 프록시 & CSS 재귀 변환 (Cloudflare Error 1102 원천 차단)**
+  * Cloudflare의 스트리밍 `HTMLRewriter`를 활용하여 외부 CDN(Tailwind, FontAwesome, 외부 JS/CSS/이미지)을 실시간 경로 보존형 스트리밍 프록시(`/api/proxy/...`)로 변환합니다.
+  * CSS 내부의 상대경로 `@import` 및 폰트/이미지 `url(...)`까지 재귀 추적 변환하여 아이콘 깨짐이나 스타일 유실을 방지합니다.
+* **🔗 내장 Discord Activity RPC 브릿지 (Zero-Dependency)**
+  * 외부 SDK CDN 로딩 실패나 의존성 없이, 순수 postMessage RPC(`Opcode 0` 핸드셰이크 & `Opcode 1` `OPEN_EXTERNAL_LINK`)를 내장하여 액티비티 내 외부 링크 클릭 시 디스코드 공식 외부 이동 모달을 안전하게 호출합니다.
+* **🧩 런타임 가상화 심 (Runtime Shim)**
+  * `window.fetch`, `XMLHttpRequest`를 자동으로 프록시 라우팅하여 런타임 동적 API 호출 차단을 방지합니다.
+  * 샌드박스 iframe 환경에서 발생하는 `localStorage` 접근 차단(`SecurityError`)을 인메모리 스토리지로 투명하게 자동 폴백합니다.
+* **🔒 엔터프라이즈급 보안 (SSRF 차단 & 스트림 보호)**
+  * 로컬호스트, 사설망 IP, 클라우드 메타데이터 주소로의 프록시 접근을 원천 차단(403)합니다.
+  * 실행 파일(`.exe`, `.sh`, `.bat` 등) 차단(415) 및 15MB 초과 스트림 차단(413)으로 서버리스 워커를 보호합니다.
 * **☁️ 100% 무(無)서버 아키텍처 (Cloudflare Workers)**
   * 상시 켜두어야 하는 컴퓨터나 유료 서버가 전혀 필요 없습니다.
   * 전 세계 300개 이상의 글로벌 에지 데이터센터에서 365일 24시간 상시 가동됩니다 (유지비 0원).
 * **🔒 채널 & 세션 실시간 격리 및 다인 참여 동기화 (Workers KV)**
   * Cloudflare KV(`SESSIONS`)와 실시간 타임스탬프(`updatedAt`)를 통해 채널별로 가장 최근에 선택된 파일을 정확히 추적하여 이전 파일이 열리는 캐시 꼬임을 원천 차단합니다.
   * 동일한 액티비티 방(`instance_id`)에 접속한 다른 참여자들에게도 실시간으로 최신 파일 화면이 동기화됩니다.
-* **🌐 인터넷 새 창 열기 지원**
-  * 디스코드 팝업 외에도 `[🌐 인터넷 새 창으로 열기]` 버튼을 통해 PC/모바일 브라우저 전체화면으로도 즉시 실행할 수 있습니다.
+* **🌐 인터넷 새 창 열기 & 헬퍼 바 지원**
+  * 디스코드 팝업 외에도 상단 플로팅 헬퍼 바의 `[🌐 새 창]` 버튼 및 메시지의 `[🌐 인터넷 새 창으로 열기]` 버튼을 통해 PC/모바일 브라우저 전체화면으로도 즉시 실행할 수 있습니다.
 
 ---
 
@@ -62,7 +70,7 @@ discord-html-activity-bot/
 ├── src/
 │   ├── worker.js             # [서버리스 모드] Cloudflare Workers 메인 엔드포인트
 │   │                         #  - Ed25519 요청 서명 검증 및 Interactions 웹훅 수신
-│   │                         #  - 실시간 병렬 에셋 인라인화 및 C++ Base64 웹폰트 임베딩
+│   │                         #  - 스트리밍 HTMLRewriter 기반 에셋 프록시 및 Zero-Eval 이벤트 컴파일
 │   │                         #  - Cloudflare KV(SESSIONS) 기반 채널/인스턴스 세션 관리
 │   ├── server.js             # [로컬 모드] Express 웹 서버 (실시간 렌더링 & 에셋 프록시)
 │   ├── bot.js                # [로컬 모드] discord.js 봇 (채팅방 자동 감지, /html 커맨드, 우클릭 메뉴)
