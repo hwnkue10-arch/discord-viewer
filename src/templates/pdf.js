@@ -390,9 +390,9 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <button id="next-page" class="pdf-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="zoom-out" class="pdf-btn" title="축소 (25% 감소)">🔍 -</button>
-      <button id="zoom-pct" class="pdf-btn" title="클릭 시 170%(추천 배율) ↔ 100% 전환">100%</button>
+      <button id="zoom-pct" class="pdf-btn" title="현재 배율: 170% (추천 배율) • 클릭 시 100% 원본 전환" style="color:#38bdf8;border-color:rgba(56,189,248,0.4);">170%</button>
       <button id="zoom-in" class="pdf-btn" title="확대 (25% 증가)">🔍 +</button>
-      <button id="zoom-fit" class="pdf-btn" title="너비 맞춤 ↔ 쪽 맞춤 전환">⇲ 너비 맞춤</button>
+      <button id="zoom-fit" class="pdf-btn" title="클릭 시 너비 맞춤 ↔ 쪽 맞춤 전환">⇲ 맞춤</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="rotate-ccw" class="pdf-btn" title="반시계 방향으로 90° 회전 (단축키 R)">⟲ 회전</button>
       <button id="page-spread" class="pdf-btn" title="두 페이지씩 나란히 보기 ↔ 한 페이지씩 보기 전환">📖 2쪽 보기</button>
@@ -459,8 +459,8 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       var currentRenderedPage = null;
       var pageRendering = false;
       var pageNumPending = null;
-      var scale = 1.0;
-      var fitMode = 'width';
+      var scale = 1.7;
+      var fitMode = null;
       var rotation = 0;
       var isTwoPage = false;
       var currentRenderTask1 = null;
