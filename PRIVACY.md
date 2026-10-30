@@ -29,3 +29,4 @@ Doc Viewer(이하 "서비스")는 이용자의 개인정보를 중요시하며, 
 
 ---
 **개인정보 관리 및 문의:** [GitHub Issues](https://github.com/hwnkue10-arch/discord-viewer/issues)
+

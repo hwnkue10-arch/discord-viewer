@@ -57,8 +57,8 @@
        ┌────────────────────────────┴────────────────────────────┐
        ▼                                                         ▼
 [Interactions Webhook]                                  [Activity Session]
-Ed25519 SubtleCrypto                                    Workers KV (SESSIONS)
-Slash (/view) & Context Menu                            Multi-User Sync
+Ed25519 SubtleCrypto                                    Durable Objects + KV
+Slash (/view) & Context Menu                            0ms Real-Time Sync
        │                                                         │
        └────────────────────────────┬────────────────────────────┘
                                     ▼
@@ -76,7 +76,7 @@ Slash (/view) & Context Menu                            Multi-User Sync
 
 ### 1. Cloud & Serverless Infrastructure
 * **Cloudflare Workers (V8 Isolates):** 상시 켜두는 서버 없이 전 세계 300개 이상의 글로벌 에지 데이터센터에서 24시간 무중단 가동 (비용 0원).
-* **Cloudflare Workers KV (`SESSIONS`):** 채널별/액티비티 방(`instance_id`)별 최신 열람 문서를 초저지연 캐싱하여 다인 참여자 간 실시간 동기화.
+* **Cloudflare Durable Objects (`SessionStore`) + Workers KV (`SESSIONS`):** 글로벌 강결합(Strong Consistency) 인메모리·SQLite 상태 동기화를 통해 리전 간 에지 캐시 지연(쿨타임)을 **0ms**로 제거하고, 여러 실행 카드를 연속 클릭하거나 다인 참여자가 동시 열람할 때 즉시 최신 문서로 전환.
 * **Streaming HTMLRewriter:** 메모리 버퍼링 없이 스트리밍 방식으로 외부 CDN 에셋과 인라인 스타일을 재귀 변환하여 Cloudflare CPU 50ms 제한(Error 1102) 원천 차단.
 
 ### 2. Security & Cryptography
@@ -142,6 +142,8 @@ discord-viewer/
 ├── .env.example              # 로컬 개발 환경용 환경변수 템플릿
 ├── wrangler.toml.example     # Cloudflare Workers 배포 환경 설정 템플릿
 ├── .gitignore                # Git 추적 제외 설정 (.env, wrangler.toml 등)
+├── TERMS.md                  # 공식 서비스 이용약관 (Terms of Service)
+├── PRIVACY.md                # 공식 개인정보 처리방침 (Privacy Policy)
 ├── package.json              # 패키지 의존성 및 실행 스크립트 정의
 └── README.md                 # 프로젝트 문서 및 사용 가이드
 ```
@@ -280,6 +282,8 @@ npx cloudflared tunnel --url http://localhost:3000
 
 ---
 
-## 📄 라이선스
+## 📄 약관 및 라이선스 (Legal & License)
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+* **이용약관 (Terms of Service):** [TERMS.md](TERMS.md) (`https://discord-viewer.hwnkue10.workers.dev/terms`)
+* **개인정보 처리방침 (Privacy Policy):** [PRIVACY.md](PRIVACY.md) (`https://discord-viewer.hwnkue10.workers.dev/privacy`)
+* **라이선스:** This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

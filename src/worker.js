@@ -655,8 +655,9 @@ function buildRuntimeShimScript(discordClientId) {
 </script>`;
 }
 
-// 플로팅 헬퍼 바 생성 (새 창 버튼 제거, 접기/펼치기 원클릭 토글 버튼 제공)
-function buildHelperBar(fileTitle, directUrl) {
+// 플로팅 헬퍼 바 생성 (새 창 버튼 제거, 접기/펼치기 원클릭 토글 버튼 및 실시간 세션 동기화 제공)
+function buildHelperBar(fileTitle, directUrl, currentCdnUrl) {
+  const safeCurrentUrl = JSON.stringify(currentCdnUrl || '');
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
@@ -772,13 +773,55 @@ function buildHelperBar(fileTitle, directUrl) {
             newUrl.searchParams.set('cdn_url', fileUrl);
             newUrl.searchParams.set('title', fileTitle);
             newUrl.searchParams.set('_t', Date.now());
-            window.location.href = newUrl.toString();
+            fetch('/api/active-session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ channel_id: chanId, cdnUrl: fileUrl, fileName: fileTitle }),
+              keepalive: true
+            }).finally(function() {
+              window.location.href = newUrl.toString();
+            });
           });
         });
       })
       .catch(function(err) {
         switchList.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:10px;">문서 목록을 가져올 수 없습니다.</div>';
       });
+  }
+
+  // 실시간 액티비티 세션 동기화 (디스코드 팝업 재사용 및 연속 실행 시 쿨타임 없이 즉시 새 파일로 전환)
+  var CURRENT_CDN_URL = ${safeCurrentUrl};
+  var isRedirecting = false;
+
+  function checkActiveSession() {
+    if (isRedirecting) return;
+    var params = new URLSearchParams(window.location.search);
+    var chanId = params.get('channel_id') || '';
+    fetch('/api/active-session?channel_id=' + encodeURIComponent(chanId) + '&_t=' + Date.now(), { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var sess = data && data.session;
+        if (!sess || !sess.cdnUrl) return;
+        if (CURRENT_CDN_URL && sess.cdnUrl !== CURRENT_CDN_URL) {
+          isRedirecting = true;
+          var nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set('cdn_url', sess.cdnUrl);
+          if (sess.fileName) nextUrl.searchParams.set('title', sess.fileName);
+          nextUrl.searchParams.set('_t', Date.now());
+          window.location.replace(nextUrl.toString());
+        }
+      })
+      .catch(function() {});
+  }
+
+  var initParams = new URLSearchParams(window.location.search);
+  if (initParams.get('channel_id') || initParams.get('instance_id') || initParams.get('frame_id')) {
+    setTimeout(checkActiveSession, 150);
+    setInterval(checkActiveSession, 1500);
+    window.addEventListener('focus', checkActiveSession);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') checkActiveSession();
+    });
   }
 })();
 </script>`;
@@ -878,7 +921,7 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, workerOrigin, targetUr
   }
 
   const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(targetUrl)}&title=${encodeURIComponent(fileTitle)}&_t=${Date.now()}`;
-  const helperBar = buildHelperBar(fileTitle, directUrl);
+  const helperBar = buildHelperBar(fileTitle, directUrl, targetUrl);
 
   const listenerEntries = [];
   let aidCounter = 0;
@@ -935,21 +978,140 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, workerOrigin, targetUr
   return rewriter.transform(response);
 }
 
-// 메모리 세션 캐시 (폴백용 - 채널 및 액티비티 인스턴스 격리)
-const channelSessions = new Map();
-const instanceSessions = new Map();
+// 글로벌 실시간 강결합(Strong Consistency) 세션 스토어 (Cloudflare Durable Object)
+// 미국 디스코드 웹훅 POP과 한국 액티비티 POP 간의 KV 60초 캐시 지연을 0ms로 완전히 제거합니다.
+export class SessionStore {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.channels = new Map();
+    this.users = new Map();
+    this.attachments = new Map();
+    this.latest = null;
+  }
 
-// 세션 저장 헬퍼 (Cloudflare KV + 로컬 메모리)
-async function saveSession(env, sessionData, channelId, userId, attachmentId, instanceId) {
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === '/save') {
+      const body = await request.json();
+      const { sessionData, channelId, userId, attachmentId } = body;
+      const data = { ...sessionData, updatedAt: sessionData.updatedAt || Date.now() };
+
+      this.latest = data;
+      const puts = { latest: data };
+
+      if (channelId) {
+        this.channels.set(channelId, data);
+        puts[`chan:${channelId}`] = data;
+      }
+      if (userId) {
+        this.users.set(userId, data);
+        puts[`user:${userId}`] = data;
+      }
+      if (attachmentId) {
+        this.attachments.set(attachmentId, data);
+        puts[`att:${attachmentId}`] = data;
+      }
+
+      try {
+        await this.state.storage.put(puts);
+      } catch (e) {}
+
+      return new Response(JSON.stringify({ ok: true, data }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/get') {
+      const channelId = url.searchParams.get('channel_id');
+      const userId = url.searchParams.get('user_id');
+
+      let result = null;
+      if (channelId) {
+        result = this.channels.get(channelId);
+        if (!result) {
+          try {
+            result = await this.state.storage.get(`chan:${channelId}`);
+            if (result) this.channels.set(channelId, result);
+          } catch (e) {}
+        }
+      }
+      if (!result && userId) {
+        result = this.users.get(userId);
+        if (!result) {
+          try {
+            result = await this.state.storage.get(`user:${userId}`);
+            if (result) this.users.set(userId, result);
+          } catch (e) {}
+        }
+      }
+      if (!result) {
+        result = this.latest;
+        if (!result) {
+          try {
+            result = await this.state.storage.get('latest');
+            if (result) this.latest = result;
+          } catch (e) {}
+        }
+      }
+
+      return new Response(JSON.stringify({ session: result || null }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/get-att') {
+      const attId = url.searchParams.get('att_id');
+      let result = null;
+      if (attId) {
+        result = this.attachments.get(attId);
+        if (!result) {
+          try {
+            result = await this.state.storage.get(`att:${attId}`);
+            if (result) this.attachments.set(attId, result);
+          } catch (e) {}
+        }
+      }
+      return new Response(JSON.stringify({ session: result || null }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+// 메모리 세션 캐시 (폴백용)
+const channelSessions = new Map();
+const attachmentSessions = new Map();
+
+// 세션 저장 헬퍼 (Durable Object 강결합 최우선 + KV/메모리 백업)
+async function saveSession(env, sessionData, channelId, userId, attachmentId) {
   const data = { ...sessionData, updatedAt: sessionData.updatedAt || Date.now() };
 
   if (channelId) {
     channelSessions.set(channelId, data);
   }
-  if (instanceId) {
-    instanceSessions.set(instanceId, data);
+  if (attachmentId) {
+    attachmentSessions.set(attachmentId, data);
   }
 
+  // 1) Durable Object (Strong Consistency, 0ms 캐시 딜레이)
+  if (env && env.SESSION_STORE) {
+    try {
+      const id = env.SESSION_STORE.idFromName('global');
+      const stub = env.SESSION_STORE.get(id);
+      await stub.fetch('https://session-store/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionData: data, channelId, userId, attachmentId })
+      });
+    } catch (e) {
+      console.error('[DO saveSession error]', e);
+    }
+  }
+
+  // 2) Cloudflare KV 백업 저장
   if (env && env.SESSIONS) {
     try {
       const jsonStr = JSON.stringify(data);
@@ -963,9 +1125,6 @@ async function saveSession(env, sessionData, channelId, userId, attachmentId, in
       if (attachmentId) {
         puts.push(env.SESSIONS.put(`att:${attachmentId}`, jsonStr, { expirationTtl: 86400 }));
       }
-      if (instanceId) {
-        puts.push(env.SESSIONS.put(`inst:${instanceId}`, jsonStr, { expirationTtl: 86400 }));
-      }
       await Promise.allSettled(puts);
     } catch (e) {
       console.error('[KV saveSession error]', e);
@@ -973,72 +1132,82 @@ async function saveSession(env, sessionData, channelId, userId, attachmentId, in
   }
 }
 
-// 세션 조회 헬퍼 (채널 최신 클릭 세션 우선 -> 인스턴스 세션 -> KV -> 유저 세션)
-async function getSession(env, channelId, userId, instanceId) {
-  let chanSess = null;
-  let instSess = null;
+// 첨부파일 ID 기반 세션 조회 헬퍼 (Durable Object 최우선 -> 메모리 -> KV)
+async function getAttachmentSession(env, attId) {
+  if (!attId) return null;
 
-  if (channelId && channelSessions.has(channelId)) {
-    chanSess = channelSessions.get(channelId);
+  if (env && env.SESSION_STORE) {
+    try {
+      const id = env.SESSION_STORE.idFromName('global');
+      const stub = env.SESSION_STORE.get(id);
+      const res = await stub.fetch(`https://session-store/get-att?att_id=${encodeURIComponent(attId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.session) return json.session;
+      }
+    } catch (e) {}
   }
-  if (instanceId && instanceSessions.has(instanceId)) {
-    instSess = instanceSessions.get(instanceId);
+
+  if (attachmentSessions.has(attId)) {
+    return attachmentSessions.get(attId);
   }
 
   if (env && env.SESSIONS) {
     try {
-      const promises = [];
-      if (channelId) {
-        promises.push(env.SESSIONS.get(`chan:${channelId}`).then((v) => (v ? JSON.parse(v) : null)));
-      } else {
-        promises.push(Promise.resolve(null));
+      const attSess = await env.SESSIONS.get(`att:${attId}`);
+      if (attSess) return JSON.parse(attSess);
+    } catch (e) {}
+  }
+
+  return null;
+}
+
+// 세션 조회 헬퍼 (Durable Object 실시간 강결합 최우선 -> 메모리 -> KV)
+async function getSession(env, channelId, userId) {
+  // 1) Durable Object에서 실시간 최신 세션 즉시 조회 (엣지 60초 캐시 우회)
+  if (env && env.SESSION_STORE) {
+    try {
+      const id = env.SESSION_STORE.idFromName('global');
+      const stub = env.SESSION_STORE.get(id);
+      const qs = new URLSearchParams();
+      if (channelId) qs.set('channel_id', channelId);
+      if (userId) qs.set('user_id', userId);
+      const res = await stub.fetch(`https://session-store/get?${qs.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.session) {
+          if (channelId) channelSessions.set(channelId, json.session);
+          return json.session;
+        }
       }
-      if (instanceId) {
-        promises.push(env.SESSIONS.get(`inst:${instanceId}`).then((v) => (v ? JSON.parse(v) : null)));
-      } else {
-        promises.push(Promise.resolve(null));
-      }
-      const [kvChan, kvInst] = await Promise.all(promises);
-      if (kvChan) {
+    } catch (e) {
+      console.error('[DO getSession error]', e);
+    }
+  }
+
+  // 2) 폴백: 메모리 및 KV 조회
+  let chanSess = channelId && channelSessions.has(channelId) ? channelSessions.get(channelId) : null;
+
+  if (env && env.SESSIONS && channelId) {
+    try {
+      const raw = await env.SESSIONS.get(`chan:${channelId}`);
+      if (raw) {
+        const kvChan = JSON.parse(raw);
         if (!chanSess || (kvChan.updatedAt || 0) >= (chanSess.updatedAt || 0)) {
           chanSess = kvChan;
         }
       }
-      if (kvInst) {
-        if (!instSess || (kvInst.updatedAt || 0) >= (instSess.updatedAt || 0)) {
-          instSess = kvInst;
-        }
-      }
-    } catch (e) {
-      console.error('[KV getSession error]', e);
-    }
-  }
-
-  // 사용자가 채팅창에서 클릭한 최신 채널 세션(chanSess)을 항상 최우선으로 적용!
-  let chosen = chanSess || instSess;
-  if (chanSess && instSess) {
-    const chanTime = typeof chanSess.updatedAt === 'number' ? chanSess.updatedAt : new Date(chanSess.updatedAt || 0).getTime();
-    const instTime = typeof instSess.updatedAt === 'number' ? instSess.updatedAt : new Date(instSess.updatedAt || 0).getTime();
-    // instSess가 chanSess보다 3초 이상 확실하게 새로운 경우에만 예외적으로 인정 (채널 클릭 직후 인스턴스가 덮어쓰는 문제 원천 차단)
-    chosen = (instTime > chanTime + 3000) ? instSess : chanSess;
-  }
-
-  if (!chosen && userId && env && env.SESSIONS) {
-    try {
-      const u = await env.SESSIONS.get(`user:${userId}`);
-      if (u) chosen = JSON.parse(u);
     } catch (e) {}
   }
 
-  // 선택된 최신 세션을 인스턴스에도 즉시 동기화 (다인 참여자 동일 화면 공유)
-  if (chosen && instanceId) {
-    instanceSessions.set(instanceId, chosen);
-    if (env && env.SESSIONS) {
-      env.SESSIONS.put(`inst:${instanceId}`, JSON.stringify(chosen), { expirationTtl: 86400 }).catch(() => {});
-    }
+  if (!chanSess && userId && env && env.SESSIONS) {
+    try {
+      const u = await env.SESSIONS.get(`user:${userId}`);
+      if (u) chanSess = JSON.parse(u);
+    } catch (e) {}
   }
 
-  return chosen;
+  return chanSess;
 }
 
 // Discord Interaction 응답 헬퍼 (JSON 형식)
@@ -1104,6 +1273,48 @@ export default {
     // 1. 헬스 체크 엔드포인트
     if (url.pathname === '/health') {
       return new Response('OK', { status: 200 });
+    }
+    if (url.pathname === '/favicon.ico') {
+      return new Response(null, { status: 204 });
+    }
+
+    // 1-1. 실시간 액티비티 활성 세션 조회/갱신 엔드포인트 (캐시 0초, Durable Object 강결합 연동)
+    if (url.pathname === '/api/active-session') {
+      if (request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const channelId = body.channel_id || url.searchParams.get('channel_id');
+          if (body.cdnUrl) {
+            await saveSession(
+              env,
+              { cdnUrl: body.cdnUrl, fileName: body.fileName || 'Document', updatedAt: Date.now() },
+              channelId,
+              null,
+              body.attachmentId || null
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+            }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({ ok: false }), { status: 400 });
+        }
+      }
+
+      const channelId = url.searchParams.get('channel_id');
+      const userId = url.searchParams.get('user_id');
+      const sess = await getSession(env, channelId, userId);
+      return new Response(JSON.stringify({ session: sess || null }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+        }
+      });
     }
 
     // 1-2. 채널 내 최근 문서 목록 조회 엔드포인트 (액티비티 내 즉시 파일 전환용)
@@ -1447,18 +1658,9 @@ export default {
           const msgId = parts[1];
           const attId = parts[2];
 
-          let targetAttachment = null;
+          let targetAttachment = await getAttachmentSession(env, attId);
 
-          if (attId && env && env.SESSIONS) {
-            try {
-              const attSess = await env.SESSIONS.get(`att:${attId}`);
-              if (attSess) {
-                targetAttachment = JSON.parse(attSess);
-              }
-            } catch (e) {}
-          }
-
-          // 만약 attSess가 KV에 없다면 채널 메시지에서 직접 첨부파일 조회
+          // 만약 attSess가 스토어에 없다면 채널 메시지에서 직접 첨부파일 조회
           if (!targetAttachment && channelId && msgId && msgId !== 'cmd' && botToken) {
             try {
               const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${msgId}`, {
@@ -1481,7 +1683,6 @@ export default {
           if (targetAttachment) {
             targetAttachment.updatedAt = Date.now();
             await saveSession(env, targetAttachment, channelId, userId, attId);
-            instanceSessions.clear();
           }
 
           return jsonResponse({
@@ -1510,7 +1711,13 @@ export default {
                 };
                 const user = interaction.user || (interaction.member && interaction.member.user);
                 const userId = user ? user.id : null;
-                await saveSession(env, { cdnUrl: normAtt.url, fileName: normAtt.name }, channelId, userId);
+                await saveSession(
+                  env,
+                  { cdnUrl: normAtt.url, fileName: normAtt.name, attachmentId: normAtt.id },
+                  channelId,
+                  userId,
+                  normAtt.id
+                );
 
                 const newPayload = buildInteractionLaunchPayload(
                   normAtt,
@@ -1592,18 +1799,17 @@ export default {
     let targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
     let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
     const activityChannelId = url.searchParams.get('channel_id');
-    const activityInstanceId = url.searchParams.get('instance_id');
 
-    // 1) instance_id (동일 액티비티 방 참여자 우선) 또는 channel_id 세션에서 CDN URL 복원
-    if (!targetUrl && (activityInstanceId || activityChannelId)) {
-      const sess = await getSession(env, activityChannelId, null, activityInstanceId);
+    // 1) Durable Object 실시간 강결합 세션에서 최신 선택된 파일 복원 (0ms 쿨타임)
+    if (!targetUrl) {
+      const sess = await getSession(env, activityChannelId, null);
       if (sess) {
         targetUrl = sess.cdnUrl;
         fileTitle = sess.fileName;
       }
     }
 
-    // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 HTML 첨부파일 자동 확보!
+    // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 첨부파일 자동 확보!
     if (!targetUrl && activityChannelId && env.DISCORD_BOT_TOKEN) {
       try {
         const res = await fetch(`https://discord.com/api/v10/channels/${activityChannelId}/messages?limit=25`, {
@@ -1619,18 +1825,13 @@ export default {
             if (att) {
               targetUrl = att.url;
               fileTitle = att.filename || att.name;
-              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null, null, activityInstanceId);
+              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null, att.id);
             }
           }
         }
       } catch (e) {
         console.error('Channel fetch error:', e);
       }
-    }
-
-    // 3) 세션이 확인되었고 instance_id가 존재한다면 인메모리에만 세션 캐싱 (채널 세션 덮어쓰기 방지)
-    if (targetUrl && activityInstanceId && !instanceSessions.has(activityInstanceId)) {
-      instanceSessions.set(activityInstanceId, { cdnUrl: targetUrl, fileName: fileTitle, updatedAt: Date.now() });
     }
 
     if (!targetUrl) {

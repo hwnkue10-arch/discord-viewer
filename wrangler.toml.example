@@ -8,7 +8,16 @@ DISCORD_CLIENT_ID = "your_discord_client_id_here"
 DISCORD_PUBLIC_KEY = "your_discord_public_key_here"
 DISCORD_BOT_TOKEN = "your_discord_bot_token_here"
 
-# (선택) Cloudflare KV를 통한 글로벌 세션 공유
+# 실시간 강일관성(Strong Consistency) 세션 동기화용 Durable Object (무료 플랜 기본 지원)
+[[durable_objects.bindings]]
+name = "SESSION_STORE"
+class_name = "SessionStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionStore"]
+
+# (선택) Cloudflare KV 백업 스토리지
 # [[kv_namespaces]]
 # binding = "SESSIONS"
 # id = "your_kv_namespace_id_here"
