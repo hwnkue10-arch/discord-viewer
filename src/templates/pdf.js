@@ -297,7 +297,8 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       box-shadow: 0 8px 30px rgba(0,0,0,0.5);
       border-radius: 4px;
       background: white;
-      max-width: 100%;
+      flex-shrink: 0;
+      margin: 0 auto;
     }
     #pdf-loading {
       display: flex;
@@ -657,12 +658,10 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           var container = document.getElementById('pdf-container');
           var desiredScale = scale;
           if (fitMode) {
-            var containerWidth = Math.min(container.clientWidth - 32, 980);
-            if (containerWidth > 200) {
-              var unscaledViewport = page.getViewport({ scale: 1 });
-              desiredScale = containerWidth / unscaledViewport.width;
-              scale = desiredScale;
-            }
+            var containerWidth = Math.max(container.clientWidth - 32, 200);
+            var unscaledViewport = page.getViewport({ scale: 1 });
+            desiredScale = containerWidth / unscaledViewport.width;
+            scale = desiredScale;
           }
           updateZoomLabel();
 
@@ -770,7 +769,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       document.getElementById('zoom-in').addEventListener('click', function() {
         if (!pdfDoc) return;
         fitMode = false;
-        scale = Math.min(scale + 0.2, 3.0);
+        scale = Math.min(scale + 0.25, 3.5);
         updateZoomLabel();
         queueRenderPage(pageNum);
       });
@@ -778,7 +777,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       document.getElementById('zoom-out').addEventListener('click', function() {
         if (!pdfDoc) return;
         fitMode = false;
-        scale = Math.max(scale - 0.2, 0.4);
+        scale = Math.max(scale - 0.25, 0.4);
         updateZoomLabel();
         queueRenderPage(pageNum);
       });

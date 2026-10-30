@@ -85,6 +85,11 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     }
     .pptx-btn:hover { background: #35373c; }
     .pptx-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    #pptx-slideshow {
+      min-width: 96px;
+      justify-content: center;
+      text-align: center;
+    }
     #pptx-workspace {
       flex: 1;
       display: flex;
@@ -253,24 +258,15 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       justify-content: center;
       margin: auto;
       flex-shrink: 0;
-      width: 100%;
-      height: 100%;
     }
     #pptx-canvas {
-      max-width: 96%;
-      max-height: calc(100vh - 88px);
-      width: auto;
-      height: auto;
       box-shadow: 0 12px 44px rgba(0,0,0,0.65);
       border-radius: 6px;
       background: #ffffff;
       display: none;
+      flex-shrink: 0;
     }
     #pptx-dom-stage {
-      width: 95%;
-      max-width: 1280px;
-      max-height: calc(100vh - 88px);
-      aspect-ratio: 16 / 9;
       position: relative;
       box-shadow: 0 12px 48px rgba(0,0,0,0.65);
       border-radius: 8px;
@@ -278,6 +274,7 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       overflow: hidden;
       display: none;
       container-type: size;
+      flex-shrink: 0;
     }
     #pptx-loading {
       display: flex;
@@ -395,11 +392,13 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       tocBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         sidebar.classList.toggle('open');
+        setTimeout(function() { if (typeof updateSlideLayout === 'function') updateSlideLayout(); }, 230);
       });
 
       sidebarClose.addEventListener('click', function(e) {
         e.stopPropagation();
         closeSidebar();
+        setTimeout(function() { if (typeof updateSlideLayout === 'function') updateSlideLayout(); }, 230);
       });
 
       var currentSlide = 0;
@@ -527,7 +526,35 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       var zoomOutBtn = document.getElementById('pptx-zoom-out');
       var zoomInBtn = document.getElementById('pptx-zoom-in');
       var zoomResetBtn = document.getElementById('pptx-zoom-reset');
-      var viewportEl = document.getElementById('pptx-viewport');
+
+      function updateSlideLayout() {
+        var stageEl = document.getElementById('stage');
+        if (!stageEl) return;
+        var availW = Math.max(260, stageEl.clientWidth - 40);
+        var availH = Math.max(160, stageEl.clientHeight - 40);
+        var aspect = slideAspect || (16 / 9);
+
+        // 100% (기본 크기)일 때 창에 딱 맞게 채우는 베이스 크기
+        var baseW = availW;
+        var baseH = baseW / aspect;
+        if (baseH > availH) {
+          baseH = availH;
+          baseW = baseH * aspect;
+        }
+
+        // 줌 배율 적용 (1.0 = 창 꽉 채움, 1.25 = 1.25배, 1.5 = 1.5배, 2.0 = 2배 ...)
+        var finalW = Math.round(baseW * pptxScale);
+        var finalH = Math.round(baseH * pptxScale);
+
+        if (domStage) {
+          domStage.style.width = finalW + 'px';
+          domStage.style.height = finalH + 'px';
+        }
+        if (canvas) {
+          canvas.style.width = finalW + 'px';
+          canvas.style.height = finalH + 'px';
+        }
+      }
 
       function updateZoomUi() {
         var pct = Math.round(pptxScale * 100);
@@ -547,15 +574,13 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           zoomOutBtn.disabled = (pptxScale <= 1.001);
         }
         if (zoomInBtn) {
-          zoomInBtn.disabled = (pptxScale >= 2.499);
+          zoomInBtn.disabled = (pptxScale >= 2.999);
         }
-        if (viewportEl) {
-          viewportEl.style.zoom = pptxScale;
-        }
+        updateSlideLayout();
       }
 
       function setPptxZoom(newScale) {
-        pptxScale = Math.max(1.0, Math.min(newScale, 2.5));
+        pptxScale = Math.max(1.0, Math.min(newScale, 3.0));
         updateZoomUi();
       }
 
@@ -576,6 +601,10 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           setPptxZoom(1.0);
         });
       }
+
+      window.addEventListener('resize', function() {
+        updateSlideLayout();
+      });
 
       var slideshowTimer = null;
       var slideshowBtn = document.getElementById('pptx-slideshow');
@@ -1018,6 +1047,7 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
             activeMode = 'dom';
             loadingEl.style.display = 'none';
             domStage.style.display = 'block';
+            updateSlideLayout();
             await showSlide(0);
             return;
           }
@@ -1036,6 +1066,7 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
               activeMode = 'canvas';
               loadingEl.style.display = 'none';
               canvas.style.display = 'block';
+              updateSlideLayout();
               await showSlide(0);
               return;
             } catch (viewerErr) {
