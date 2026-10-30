@@ -27,7 +27,7 @@ function renderLegalPage(title, lastUpdated, sections) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>\${title} - Doc Viewer</title>
+  <title>${title} - Doc Viewer</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -94,9 +94,9 @@ function renderLegalPage(title, lastUpdated, sections) {
 </head>
 <body>
   <div class="container">
-    <h1>\${title}</h1>
-    <div class="date">최종 수정일: \${lastUpdated}</div>
-    \${sections}
+    <h1>${title}</h1>
+    <div class="date">최종 수정일: ${lastUpdated}</div>
+    ${sections}
     <div class="footer">
       © 2026 Doc Viewer (Discord In-App Multi-Format Viewer). All rights reserved.
     </div>
