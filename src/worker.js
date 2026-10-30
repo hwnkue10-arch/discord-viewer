@@ -1249,7 +1249,7 @@ function buildInteractionLaunchPayload(attachment, messageId, uploaderName, work
         {
           color: meta.color,
           title: `${meta.icon} ${displayName} 열기 준비 완료`,
-          description: `아래 버튼을 누르면 **디스코드 앱 내부 팝업(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.`,
+          description: `아래 버튼을 누르면 **디스코드 앱 내부 팝업(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.\n\n💡 *디스코드 본사 지역 정책으로 내부 팝업이 지원되지 않는 경우, **[🌐 인터넷 새 창으로 열기]**를 누르면 즉시 열람하실 수 있습니다.*`,
           fields: [
             { name: '파일 형식', value: `${meta.icon} ${meta.label}`, inline: true },
             { name: '파일 크기', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
