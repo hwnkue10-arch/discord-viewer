@@ -34,6 +34,11 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       flex-shrink: 0;
       z-index: 100;
       user-select: none;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #pdf-toolbar::-webkit-scrollbar {
+      display: none;
     }
     @media (max-width: 720px) {
       #pdf-toolbar { padding-right: 14px; }
@@ -101,6 +106,34 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       font-weight: 700;
       box-sizing: border-box;
       justify-content: center;
+    }
+    #rotate-ccw {
+      width: 76px;
+      min-width: 76px;
+      max-width: 76px;
+      box-sizing: border-box;
+      justify-content: center;
+      text-align: center;
+      padding: 5px 0;
+      white-space: nowrap;
+    }
+    #page-spread {
+      width: 86px;
+      min-width: 86px;
+      max-width: 86px;
+      box-sizing: border-box;
+      justify-content: center;
+      text-align: center;
+      padding: 5px 0;
+      white-space: nowrap;
+    }
+    #pdf-page-stage {
+      display: flex;
+      flex-direction: row;
+      gap: 16px;
+      justify-content: center;
+      align-items: flex-start;
+      margin: auto;
     }
     .page-input-wrapper {
       display: inline-flex;
@@ -350,6 +383,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <button id="prev-page" class="pdf-btn" disabled>◀ 이전</button>
       <div class="page-input-wrapper">
         <input id="pdf-page-input" class="page-num-input" type="number" min="1" value="1" title="페이지 번호 입력 후 Enter">
+        <span id="pdf-page-two-indicator" style="display:none;color:#94a3b8;font-size:11px;font-weight:600;margin-right:2px;"></span>
         <span style="color:#64748b;">/</span>
         <span id="pdf-page-total" class="page-total-label">-</span>
       </div>
@@ -359,6 +393,9 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <button id="zoom-pct" class="pdf-btn" title="클릭 시 170%(추천 배율) ↔ 100% 전환">100%</button>
       <button id="zoom-in" class="pdf-btn" title="확대 (25% 증가)">🔍 +</button>
       <button id="zoom-fit" class="pdf-btn" title="너비 맞춤 ↔ 쪽 맞춤 전환">⇲ 너비 맞춤</button>
+      <span style="color:#4b5563;margin:0 2px;">|</span>
+      <button id="rotate-ccw" class="pdf-btn" title="반시계 방향으로 90° 회전 (단축키 R)">⟲ 회전</button>
+      <button id="page-spread" class="pdf-btn" title="두 페이지씩 나란히 보기 ↔ 한 페이지씩 보기 전환">📖 2쪽 보기</button>
     </div>
   </div>
 
@@ -385,7 +422,10 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         <div class="spinner"></div>
         <div id="pdf-loading-text">⚡ PDF 문서를 불러오는 중입니다...</div>
       </div>
-      <canvas id="pdf-canvas" class="pdf-page-canvas" style="display:none;"></canvas>
+      <div id="pdf-page-stage">
+        <canvas id="pdf-canvas" class="pdf-page-canvas" style="display:none;"></canvas>
+        <canvas id="pdf-canvas-2" class="pdf-page-canvas" style="display:none;"></canvas>
+      </div>
     </div>
   </div>
 
@@ -421,14 +461,23 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       var pageNumPending = null;
       var scale = 1.0;
       var fitMode = 'width';
+      var rotation = 0;
+      var isTwoPage = false;
+      var currentRenderTask1 = null;
+      var currentRenderTask2 = null;
 
       var canvas = document.getElementById('pdf-canvas');
       var ctx = canvas.getContext('2d');
+      var canvas2 = document.getElementById('pdf-canvas-2');
+      var ctx2 = canvas2 ? canvas2.getContext('2d') : null;
       var loadingEl = document.getElementById('pdf-loading');
       var pageInput = document.getElementById('pdf-page-input');
+      var twoPageIndicator = document.getElementById('pdf-page-two-indicator');
       var pageTotal = document.getElementById('pdf-page-total');
       var prevBtn = document.getElementById('prev-page');
       var nextBtn = document.getElementById('next-page');
+      var rotateCcwBtn = document.getElementById('rotate-ccw');
+      var pageSpreadBtn = document.getElementById('page-spread');
 
       var tocBtn = document.getElementById('pdf-toc-btn');
       var sidebar = document.getElementById('pdf-sidebar');
@@ -480,7 +529,10 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         if (isNaN(target)) return;
         if (pageNum !== target) {
           var container = document.getElementById('pdf-container');
-          if (container) container.scrollTop = 0;
+          if (container) {
+            container.scrollTop = 0;
+            container.scrollLeft = 0;
+          }
         }
         pageNum = target;
         queueRenderPage(pageNum);
@@ -670,45 +722,107 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
 
       function renderPage(num) {
-        var isNewPage = (currentRenderedPage !== null && currentRenderedPage !== num);
-        currentRenderedPage = num;
+        var firstPage = num;
+        if (isTwoPage) {
+          firstPage = (num % 2 === 1) ? num : Math.max(1, num - 1);
+        }
+        var secondPage = firstPage + 1;
+        var hasSecond = (isTwoPage && secondPage <= pdfDoc.numPages);
+        pageNum = firstPage;
+
+        var isNewPage = (currentRenderedPage !== null && currentRenderedPage !== firstPage);
+        currentRenderedPage = firstPage;
         pageRendering = true;
-        pdfDoc.getPage(num).then(function(page) {
+
+        if (currentRenderTask1) {
+          try { currentRenderTask1.cancel(); } catch (e) {}
+          currentRenderTask1 = null;
+        }
+        if (currentRenderTask2) {
+          try { currentRenderTask2.cancel(); } catch (e) {}
+          currentRenderTask2 = null;
+        }
+
+        var pagePromises = [pdfDoc.getPage(firstPage)];
+        if (hasSecond) {
+          pagePromises.push(pdfDoc.getPage(secondPage));
+        }
+
+        Promise.all(pagePromises).then(function(pages) {
+          var page1 = pages[0];
+          var page2 = pages[1] || null;
+
           var container = document.getElementById('pdf-container');
+          var containerWidth = Math.max((container ? container.clientWidth : window.innerWidth) - 32, 200);
+          var containerHeight = Math.max((container ? container.clientHeight : window.innerHeight) - 40, 200);
+
+          var unscaledVp1 = page1.getViewport({ scale: 1, rotation: rotation });
+          var unscaledVp2 = page2 ? page2.getViewport({ scale: 1, rotation: rotation }) : null;
+
           var desiredScale = scale;
-          var unscaledViewport = page.getViewport({ scale: 1 });
           if (fitMode === 'width') {
-            var containerWidth = Math.max((container ? container.clientWidth : window.innerWidth) - 32, 200);
-            desiredScale = containerWidth / unscaledViewport.width;
+            if (page2) {
+              var totalUnscaledWidth = unscaledVp1.width + unscaledVp2.width + 16;
+              desiredScale = containerWidth / totalUnscaledWidth;
+            } else {
+              desiredScale = containerWidth / unscaledVp1.width;
+            }
             scale = desiredScale;
           } else if (fitMode === 'page') {
-            var containerWidth = Math.max((container ? container.clientWidth : window.innerWidth) - 32, 200);
-            var containerHeight = Math.max((container ? container.clientHeight : window.innerHeight) - 40, 200);
-            desiredScale = Math.min(containerWidth / unscaledViewport.width, containerHeight / unscaledViewport.height);
+            if (page2) {
+              var totalUnscaledWidth = unscaledVp1.width + unscaledVp2.width + 16;
+              var maxUnscaledHeight = Math.max(unscaledVp1.height, unscaledVp2.height);
+              desiredScale = Math.min(containerWidth / totalUnscaledWidth, containerHeight / maxUnscaledHeight);
+            } else {
+              desiredScale = Math.min(containerWidth / unscaledVp1.width, containerHeight / unscaledVp1.height);
+            }
             scale = desiredScale;
           }
+
           updateZoomLabel();
 
           var dpr = window.devicePixelRatio || 1;
-          var viewport = page.getViewport({ scale: desiredScale });
+          var vp1 = page1.getViewport({ scale: desiredScale, rotation: rotation });
 
-          canvas.height = Math.floor(viewport.height * dpr);
-          canvas.width = Math.floor(viewport.width * dpr);
-          canvas.style.height = Math.floor(viewport.height) + 'px';
-          canvas.style.width = Math.floor(viewport.width) + 'px';
-
+          canvas.height = Math.floor(vp1.height * dpr);
+          canvas.width = Math.floor(vp1.width * dpr);
+          canvas.style.height = Math.floor(vp1.height) + 'px';
+          canvas.style.width = Math.floor(vp1.width) + 'px';
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-          var renderContext = {
+          currentRenderTask1 = page1.render({
             canvasContext: ctx,
-            viewport: viewport
-          };
-          var renderTask = page.render(renderContext);
+            viewport: vp1
+          });
 
-          renderTask.promise.then(function() {
+          var renderPromises = [currentRenderTask1.promise];
+
+          if (page2 && canvas2 && ctx2) {
+            var vp2 = page2.getViewport({ scale: desiredScale, rotation: rotation });
+            canvas2.height = Math.floor(vp2.height * dpr);
+            canvas2.width = Math.floor(vp2.width * dpr);
+            canvas2.style.height = Math.floor(vp2.height) + 'px';
+            canvas2.style.width = Math.floor(vp2.width) + 'px';
+            ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            currentRenderTask2 = page2.render({
+              canvasContext: ctx2,
+              viewport: vp2
+            });
+            renderPromises.push(currentRenderTask2.promise);
+          } else if (canvas2) {
+            canvas2.style.display = 'none';
+          }
+
+          Promise.all(renderPromises).then(function() {
             pageRendering = false;
+            currentRenderTask1 = null;
+            currentRenderTask2 = null;
             loadingEl.style.display = 'none';
             canvas.style.display = 'block';
+            if (page2 && canvas2) {
+              canvas2.style.display = 'block';
+            }
 
             if (isNewPage) {
               var container = document.getElementById('pdf-container');
@@ -724,28 +838,54 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
             }
           }).catch(function(err) {
             pageRendering = false;
+            currentRenderTask1 = null;
+            currentRenderTask2 = null;
+            if (err && err.name === 'RenderingCancelledException') return;
             console.error('페이지 렌더링 오류:', err);
           });
+        }).catch(function(err) {
+          pageRendering = false;
+          console.error('페이지 로드 오류:', err);
         });
 
-        pageInput.value = num;
-        pageTotal.textContent = pdfDoc.numPages;
-        prevBtn.disabled = (num <= 1);
-        nextBtn.disabled = (num >= pdfDoc.numPages);
-
-        var prevActive = pagesList.querySelector('.sidebar-item.active');
-        if (prevActive) prevActive.classList.remove('active');
-        var curActive = document.getElementById('pdf-toc-p-' + num);
-        if (curActive) {
-          curActive.classList.add('active');
-          if (sidebar.classList.contains('open') && pagesList.style.display !== 'none') {
-            curActive.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        // UI 상태 업데이트
+        pageInput.value = firstPage;
+        if (twoPageIndicator) {
+          if (hasSecond) {
+            twoPageIndicator.style.display = 'inline';
+            twoPageIndicator.textContent = ' - ' + secondPage;
+          } else {
+            twoPageIndicator.style.display = 'none';
+            twoPageIndicator.textContent = '';
           }
+        }
+        pageTotal.textContent = pdfDoc.numPages;
+        prevBtn.disabled = (firstPage <= 1);
+        if (isTwoPage) {
+          nextBtn.disabled = (!hasSecond || secondPage >= pdfDoc.numPages);
+        } else {
+          nextBtn.disabled = (firstPage >= pdfDoc.numPages);
+        }
+
+        // 사이드바 활성 페이지 표시
+        var prevActives = pagesList.querySelectorAll('.sidebar-item.active');
+        prevActives.forEach(function(el) { el.classList.remove('active'); });
+
+        var curActive1 = document.getElementById('pdf-toc-p-' + firstPage);
+        if (curActive1) {
+          curActive1.classList.add('active');
+          if (sidebar.classList.contains('open') && pagesList.style.display !== 'none') {
+            curActive1.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }
+        }
+        if (hasSecond) {
+          var curActive2 = document.getElementById('pdf-toc-p-' + secondPage);
+          if (curActive2) curActive2.classList.add('active');
         }
 
         var prevOutlineActive = outlineList.querySelector('.sidebar-item.active');
         if (prevOutlineActive) prevOutlineActive.classList.remove('active');
-        var curOutlineActive = document.getElementById('pdf-outline-p-' + num);
+        var curOutlineActive = document.getElementById('pdf-outline-p-' + firstPage);
         if (curOutlineActive) {
           curOutlineActive.classList.add('active');
           if (sidebar.classList.contains('open') && outlineList.style.display !== 'none') {
@@ -763,18 +903,79 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
 
       function onPrevPage() {
-        if (!pdfDoc || pageNum <= 1) return;
-        pageNum--;
+        if (!pdfDoc) return;
+        if (isTwoPage) {
+          if (pageNum <= 1) return;
+          pageNum = Math.max(1, pageNum - 2);
+        } else {
+          if (pageNum <= 1) return;
+          pageNum--;
+        }
         queueRenderPage(pageNum);
       }
       prevBtn.addEventListener('click', onPrevPage);
 
       function onNextPage() {
-        if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
-        pageNum++;
+        if (!pdfDoc) return;
+        if (isTwoPage) {
+          if (pageNum + 1 >= pdfDoc.numPages) return;
+          pageNum = Math.min(pdfDoc.numPages, pageNum + 2);
+        } else {
+          if (pageNum >= pdfDoc.numPages) return;
+          pageNum++;
+        }
         queueRenderPage(pageNum);
       }
       nextBtn.addEventListener('click', onNextPage);
+
+      function updateRotateUi() {
+        if (!rotateCcwBtn) return;
+        rotateCcwBtn.title = '반시계 방향으로 90° 회전 (현재 ' + rotation + '° • 단축키 R)';
+        if (rotation !== 0) {
+          rotateCcwBtn.style.color = '#38bdf8';
+          rotateCcwBtn.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+          rotateCcwBtn.style.background = 'rgba(56, 189, 248, 0.12)';
+        } else {
+          rotateCcwBtn.style.color = '#f2f3f5';
+          rotateCcwBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+          rotateCcwBtn.style.background = '#2b2d31';
+        }
+      }
+
+      function updateSpreadUi() {
+        if (!pageSpreadBtn) return;
+        if (isTwoPage) {
+          pageSpreadBtn.textContent = '📄 1쪽 보기';
+          pageSpreadBtn.title = '현재 2쪽 나란히 보기 • 클릭 시 1쪽 보기로 전환';
+          pageSpreadBtn.style.color = '#38bdf8';
+          pageSpreadBtn.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+          pageSpreadBtn.style.background = 'rgba(56, 189, 248, 0.12)';
+        } else {
+          pageSpreadBtn.textContent = '📖 2쪽 보기';
+          pageSpreadBtn.title = '두 페이지씩 나란히 보기 ↔ 한 페이지씩 보기 전환';
+          pageSpreadBtn.style.color = '#f2f3f5';
+          pageSpreadBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+          pageSpreadBtn.style.background = '#2b2d31';
+        }
+      }
+
+      if (rotateCcwBtn) {
+        rotateCcwBtn.addEventListener('click', function() {
+          if (!pdfDoc) return;
+          rotation = (rotation + 270) % 360;
+          updateRotateUi();
+          queueRenderPage(pageNum);
+        });
+      }
+
+      if (pageSpreadBtn) {
+        pageSpreadBtn.addEventListener('click', function() {
+          if (!pdfDoc) return;
+          isTwoPage = !isTwoPage;
+          updateSpreadUi();
+          queueRenderPage(pageNum);
+        });
+      }
 
       var zoomPctBtn = document.getElementById('zoom-pct');
       var zoomFitBtn = document.getElementById('zoom-fit');
@@ -873,7 +1074,12 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
         if (e.key === 'ArrowLeft') onPrevPage();
         else if (e.key === 'ArrowRight') onNextPage();
-        else if (e.key === '+' || e.key === '=') {
+        else if (e.key === 'r' || e.key === 'R') {
+          if (!pdfDoc) return;
+          rotation = (rotation + 270) % 360;
+          updateRotateUi();
+          queueRenderPage(pageNum);
+        } else if (e.key === '+' || e.key === '=') {
           if (!pdfDoc) return;
           fitMode = null;
           scale = Math.min(scale + 0.25, 3.5);
