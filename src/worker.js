@@ -11,7 +11,7 @@ import {
   renderPdfViewer,
   renderMarkdownViewer,
   renderPptxViewer
-} from './templates.js';
+} from './templates/index.js';
 
 const FORMAT_META = {
   html: { icon: '📄', label: 'HTML 웹페이지', color: 0x38bdf8 },

@@ -125,12 +125,17 @@ discord-viewer/
 ├── public/
 │   └── activity_shell.html   # 액티비티 쉘 & 로컬 렌더러
 ├── src/
+│   ├── templates/            # 포맷별 독립 뷰어 렌더링 엔진 모듈
+│   │   ├── pdf.js            #  - PDF 뷰어 (Mozilla PDF.js + 목차/헤드라인 추출)
+│   │   ├── markdown.js       #  - Markdown 뷰어 (Marked + Highlight + Mermaid)
+│   │   ├── pptx.js           #  - PPTX 뷰어 (PptxViewJS + JSZip OOXML 엔진)
+│   │   ├── utils.js          #  - 포맷 감지 및 이스케이프 공통 유틸리티
+│   │   └── index.js          #  - 템플릿 통합 Export 허브
 │   ├── worker.js             # [서버리스 모드] Cloudflare Workers 메인 엔드포인트
 │   │                         #  - Ed25519 웹훅 서명 검증 및 /view 인터랙션 라우팅
 │   │                         #  - HTMLRewriter 에셋 프록시 및 멀티 포맷 에지 렌더러
 │   ├── server.js             # [로컬 모드] Express 웹 서버 (실시간 렌더링 & 에셋 프록시)
 │   ├── bot.js                # [로컬 모드] discord.js 봇 (/view 슬래시 커맨드, 우클릭 메뉴)
-│   ├── templates.js          # PDF(PDF.js), Markdown(Marked+Mermaid), PPTX(PptxViewJS) 뷰어 엔진
 │   └── index.js              # [로컬 모드] 로컬 웹 서버(server.js)와 봇(bot.js) 동시 구동
 ├── scripts/
 │   └── register_commands.js  # 디스코드 API 전역 슬래시 명령어 동기화 스크립트 (npm run register)
