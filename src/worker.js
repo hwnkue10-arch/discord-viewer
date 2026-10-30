@@ -1210,6 +1210,22 @@ async function getSession(env, channelId, userId) {
   return chanSess;
 }
 
+// 디스코드 첨부파일의 원본 파일명 추출 헬퍼
+// 디스코드 서버가 한글 파일명을 '7_AI____.pdf'처럼 언더바로 치환해도 att.title에서 원본 한글 파일명을 복원합니다.
+function getAttachmentDisplayName(att) {
+  if (!att) return '문서';
+  const rawTitle = (att.title && String(att.title).trim()) || (att.description && String(att.description).trim());
+  const fallbackName = att.filename || att.name || '';
+  if (rawTitle) {
+    const ext = fallbackName.split('.').pop();
+    if (ext && ext.length <= 5 && !rawTitle.toLowerCase().endsWith('.' + ext.toLowerCase())) {
+      return rawTitle + '.' + ext;
+    }
+    return rawTitle;
+  }
+  return fallbackName || '문서';
+}
+
 // Discord Interaction 응답 헬퍼 (JSON 형식)
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -1220,8 +1236,9 @@ function jsonResponse(data, status = 200) {
 
 // 실행 버튼 및 임베드 페이로드 빌더
 function buildInteractionLaunchPayload(attachment, messageId, uploaderName, workerOrigin) {
-  const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(attachment.url)}&title=${encodeURIComponent(attachment.name)}&_t=${Date.now()}`;
-  const format = getFileFormat(attachment.name) || 'html';
+  const displayName = getAttachmentDisplayName(attachment);
+  const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(attachment.url)}&title=${encodeURIComponent(displayName)}&_t=${Date.now()}`;
+  const format = getFileFormat(displayName || attachment.name) || 'html';
   const meta = FORMAT_META[format] || { icon: '📄', label: '문서', color: 0x5865f2 };
 
   return {
@@ -1231,7 +1248,7 @@ function buildInteractionLaunchPayload(attachment, messageId, uploaderName, work
       embeds: [
         {
           color: meta.color,
-          title: `${meta.icon} ${attachment.name} 열기 준비 완료`,
+          title: `${meta.icon} ${displayName} 열기 준비 완료`,
           description: `아래 버튼을 누르면 **디스코드 앱 내부 팝업(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.`,
           fields: [
             { name: '파일 형식', value: `${meta.icon} ${meta.label}`, inline: true },
@@ -1334,9 +1351,10 @@ export default {
             for (const att of (m.attachments || [])) {
               const fmt = getFileFormat(att.filename || att.name);
               if (fmt) {
+                const displayName = getAttachmentDisplayName(att);
                 files.push({
                   id: att.id,
-                  name: att.filename || att.name,
+                  name: displayName,
                   url: att.url,
                   size: att.size,
                   format: fmt,
@@ -1542,7 +1560,7 @@ export default {
 
         const normAttachment = {
           id: attachment.id,
-          name: attachment.filename || attachment.name,
+          name: getAttachmentDisplayName(attachment),
           url: attachment.url,
           size: attachment.size
         };
@@ -1564,7 +1582,7 @@ export default {
           const selectOptions = [];
           foundMessages.forEach((msg) => {
             (msg.attachments || []).forEach((att) => {
-              const name = att.filename || att.name || '';
+              const name = getAttachmentDisplayName(att);
               const fmt = getFileFormat(name);
               if (fmt && selectOptions.length < 10) {
                 const meta = FORMAT_META[fmt] || { icon: '📄', label: '문서' };
@@ -1625,7 +1643,7 @@ export default {
 
         const normAttachment = {
           id: attachment.id,
-          name: attachment.filename || attachment.name,
+          name: getAttachmentDisplayName(attachment),
           url: attachment.url,
           size: attachment.size
         };
@@ -1672,7 +1690,7 @@ export default {
                 if (att) {
                   targetAttachment = {
                     cdnUrl: att.url,
-                    fileName: att.filename || att.name,
+                    fileName: getAttachmentDisplayName(att),
                     attachmentId: att.id
                   };
                 }
@@ -1705,7 +1723,7 @@ export default {
               if (att) {
                 const normAtt = {
                   id: att.id,
-                  name: att.filename || att.name,
+                  name: getAttachmentDisplayName(att),
                   url: att.url,
                   size: att.size
                 };
@@ -1824,13 +1842,37 @@ export default {
             const att = msgWithFile.attachments.find((a) => getFileFormat(a.filename || a.name));
             if (att) {
               targetUrl = att.url;
-              fileTitle = att.filename || att.name;
+              fileTitle = getAttachmentDisplayName(att);
               await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null, att.id);
             }
           }
         }
       } catch (e) {
         console.error('Channel fetch error:', e);
+      }
+    }
+
+    // 3) 만약 fileTitle에 디스코드 특유의 언더바 치환(____)이 포함되어 있거나 기본값인 경우, 채널 메시지에서 원본 제목(att.title)을 찾아 복원 시도
+    if (activityChannelId && env.DISCORD_BOT_TOKEN && (fileTitle.includes('___') || fileTitle === 'Discord HTML Runner')) {
+      try {
+        const res = await fetch(`https://discord.com/api/v10/channels/${activityChannelId}/messages?limit=25`, {
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
+        });
+        if (res.ok) {
+          const msgs = await res.json();
+          for (const m of msgs) {
+            const matchedAtt = (m.attachments || []).find((a) => (targetUrl && (a.url === targetUrl || targetUrl.includes(a.id))) || getFileFormat(a.filename || a.name));
+            if (matchedAtt) {
+              const restoredName = getAttachmentDisplayName(matchedAtt);
+              if (restoredName && !restoredName.includes('___')) {
+                fileTitle = restoredName;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Title restoration error:', e);
       }
     }
 

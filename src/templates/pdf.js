@@ -84,6 +84,24 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     }
     .pdf-btn:hover { background: #35373c; }
     .pdf-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    #zoom-fit {
+      width: 92px;
+      min-width: 92px;
+      max-width: 92px;
+      box-sizing: border-box;
+      justify-content: center;
+      text-align: center;
+      padding: 5px 0;
+      white-space: nowrap;
+    }
+    #zoom-pct {
+      min-width: 62px;
+      text-align: center;
+      font-family: Consolas, monospace;
+      font-weight: 700;
+      box-sizing: border-box;
+      justify-content: center;
+    }
     .page-input-wrapper {
       display: inline-flex;
       align-items: center;
@@ -338,8 +356,9 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <button id="next-page" class="pdf-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="zoom-out" class="pdf-btn" title="축소 (25% 감소)">🔍 -</button>
-      <button id="zoom-fit" class="pdf-btn" title="클릭 시 창 너비 맞춤 / 100% 전환" style="min-width:62px;text-align:center;font-family:Consolas,monospace;font-weight:700;">100%</button>
+      <button id="zoom-pct" class="pdf-btn" title="클릭 시 170%(추천 배율) ↔ 100% 전환">100%</button>
       <button id="zoom-in" class="pdf-btn" title="확대 (25% 증가)">🔍 +</button>
+      <button id="zoom-fit" class="pdf-btn" title="너비 맞춤 ↔ 쪽 맞춤 전환">⇲ 너비 맞춤</button>
     </div>
   </div>
 
@@ -400,8 +419,8 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       var currentRenderedPage = null;
       var pageRendering = false;
       var pageNumPending = null;
-      var scale = 1.3;
-      var fitMode = true;
+      var scale = 1.0;
+      var fitMode = 'width';
 
       var canvas = document.getElementById('pdf-canvas');
       var ctx = canvas.getContext('2d');
@@ -657,10 +676,15 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         pdfDoc.getPage(num).then(function(page) {
           var container = document.getElementById('pdf-container');
           var desiredScale = scale;
-          if (fitMode) {
-            var containerWidth = Math.max(container.clientWidth - 32, 200);
-            var unscaledViewport = page.getViewport({ scale: 1 });
+          var unscaledViewport = page.getViewport({ scale: 1 });
+          if (fitMode === 'width') {
+            var containerWidth = Math.max((container ? container.clientWidth : window.innerWidth) - 32, 200);
             desiredScale = containerWidth / unscaledViewport.width;
+            scale = desiredScale;
+          } else if (fitMode === 'page') {
+            var containerWidth = Math.max((container ? container.clientWidth : window.innerWidth) - 32, 200);
+            var containerHeight = Math.max((container ? container.clientHeight : window.innerHeight) - 40, 200);
+            desiredScale = Math.min(containerWidth / unscaledViewport.width, containerHeight / unscaledViewport.height);
             scale = desiredScale;
           }
           updateZoomLabel();
@@ -688,7 +712,10 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
             if (isNewPage) {
               var container = document.getElementById('pdf-container');
-              if (container) container.scrollTop = 0;
+              if (container) {
+                container.scrollTop = 0;
+                container.scrollLeft = 0;
+              }
             }
 
             if (pageNumPending !== null) {
@@ -749,26 +776,77 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
       nextBtn.addEventListener('click', onNextPage);
 
+      var zoomPctBtn = document.getElementById('zoom-pct');
       var zoomFitBtn = document.getElementById('zoom-fit');
 
       function updateZoomLabel() {
-        if (!zoomFitBtn) return;
         var pct = Math.round(scale * 100);
-        zoomFitBtn.textContent = pct + '%';
-        if (fitMode) {
-          zoomFitBtn.title = '현재 배율: ' + pct + '% (너비 자동 맞춤 • 클릭 시 100% 원본 전환)';
-          zoomFitBtn.style.color = '#38bdf8';
-          zoomFitBtn.style.borderColor = 'rgba(56, 189, 248, 0.4)';
-        } else {
-          zoomFitBtn.title = '현재 배율: ' + pct + '% (클릭 시 너비 맞춤 전환)';
-          zoomFitBtn.style.color = '#f2f3f5';
-          zoomFitBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+        if (zoomPctBtn) {
+          zoomPctBtn.textContent = pct + '%';
+          if (Math.abs(scale - 1.7) < 0.05) {
+            zoomPctBtn.style.color = '#38bdf8';
+            zoomPctBtn.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+            zoomPctBtn.title = '현재 배율: ' + pct + '% (추천 배율) • 클릭 시 100% 원본 전환';
+          } else {
+            zoomPctBtn.style.color = '#f2f3f5';
+            zoomPctBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            zoomPctBtn.title = '현재 배율: ' + pct + '% • 클릭 시 170%(추천 배율) 전환';
+          }
         }
+
+        if (zoomFitBtn) {
+          if (fitMode === 'width') {
+            zoomFitBtn.textContent = '⇲ 너비 맞춤';
+            zoomFitBtn.style.color = '#38bdf8';
+            zoomFitBtn.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+            zoomFitBtn.style.background = 'rgba(56, 189, 248, 0.12)';
+            zoomFitBtn.title = '현재 너비 맞춤 • 클릭 시 쪽(페이지) 맞춤 전환';
+          } else if (fitMode === 'page') {
+            zoomFitBtn.textContent = '⛶ 쪽 맞춤';
+            zoomFitBtn.style.color = '#38bdf8';
+            zoomFitBtn.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+            zoomFitBtn.style.background = 'rgba(56, 189, 248, 0.12)';
+            zoomFitBtn.title = '현재 쪽 맞춤 • 클릭 시 너비 맞춤 전환';
+          } else {
+            zoomFitBtn.textContent = '⇲ 맞춤';
+            zoomFitBtn.style.color = '#f2f3f5';
+            zoomFitBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            zoomFitBtn.style.background = '#2b2d31';
+            zoomFitBtn.title = '클릭 시 너비 맞춤 ↔ 쪽 맞춤 전환';
+          }
+        }
+      }
+
+      if (zoomPctBtn) {
+        zoomPctBtn.addEventListener('click', function() {
+          if (!pdfDoc) return;
+          fitMode = null;
+          if (Math.abs(scale - 1.7) < 0.05) {
+            scale = 1.0;
+          } else {
+            scale = 1.7;
+          }
+          updateZoomLabel();
+          queueRenderPage(pageNum);
+        });
+      }
+
+      if (zoomFitBtn) {
+        zoomFitBtn.addEventListener('click', function() {
+          if (!pdfDoc) return;
+          if (fitMode === 'width') {
+            fitMode = 'page';
+          } else {
+            fitMode = 'width';
+          }
+          updateZoomLabel();
+          queueRenderPage(pageNum);
+        });
       }
 
       document.getElementById('zoom-in').addEventListener('click', function() {
         if (!pdfDoc) return;
-        fitMode = false;
+        fitMode = null;
         scale = Math.min(scale + 0.25, 3.5);
         updateZoomLabel();
         queueRenderPage(pageNum);
@@ -776,28 +854,44 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
       document.getElementById('zoom-out').addEventListener('click', function() {
         if (!pdfDoc) return;
-        fitMode = false;
+        fitMode = null;
         scale = Math.max(scale - 0.25, 0.4);
         updateZoomLabel();
         queueRenderPage(pageNum);
       });
 
-      document.getElementById('zoom-fit').addEventListener('click', function() {
-        if (!pdfDoc) return;
-        if (fitMode) {
-          fitMode = false;
-          scale = 1.0;
-        } else {
-          fitMode = true;
-        }
-        updateZoomLabel();
-        queueRenderPage(pageNum);
+      var resizeTimeout = null;
+      window.addEventListener('resize', function() {
+        if (!pdfDoc || !fitMode) return;
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(function() {
+          queueRenderPage(pageNum);
+        }, 150);
       });
 
       window.addEventListener('keydown', function(e) {
         if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
         if (e.key === 'ArrowLeft') onPrevPage();
         else if (e.key === 'ArrowRight') onNextPage();
+        else if (e.key === '+' || e.key === '=') {
+          if (!pdfDoc) return;
+          fitMode = null;
+          scale = Math.min(scale + 0.25, 3.5);
+          updateZoomLabel();
+          queueRenderPage(pageNum);
+        } else if (e.key === '-' || e.key === '_') {
+          if (!pdfDoc) return;
+          fitMode = null;
+          scale = Math.max(scale - 0.25, 0.4);
+          updateZoomLabel();
+          queueRenderPage(pageNum);
+        } else if (e.key === '0') {
+          if (!pdfDoc) return;
+          fitMode = null;
+          scale = 1.0;
+          updateZoomLabel();
+          queueRenderPage(pageNum);
+        }
       });
 
       var targetPdfUrl = ${safeJsonForScript(targetUrl || '')};

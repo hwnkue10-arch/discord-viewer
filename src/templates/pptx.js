@@ -86,9 +86,15 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     .pptx-btn:hover { background: #35373c; }
     .pptx-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     #pptx-slideshow {
-      min-width: 96px;
+      width: 114px;
+      min-width: 114px;
+      max-width: 114px;
+      flex-shrink: 0;
+      box-sizing: border-box;
       justify-content: center;
       text-align: center;
+      padding: 5px 6px;
+      white-space: nowrap;
     }
     #pptx-workspace {
       flex: 1;
@@ -313,8 +319,8 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <button id="next-slide" class="pptx-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="pptx-zoom-out" class="pptx-btn" title="축소 (최소 100%)" disabled>🔍 -</button>
-      <button id="pptx-zoom-reset" class="pptx-btn" title="클릭 시 기본 크기(100%)로 복귀" style="min-width:58px;text-align:center;font-family:Consolas,monospace;font-weight:700;">100%</button>
-      <button id="pptx-zoom-in" class="pptx-btn" title="확대 (최대 250%)">🔍 +</button>
+      <button id="pptx-zoom-reset" class="pptx-btn" title="클릭 시 170%(추천 배율) ↔ 100% 기본 화면 맞춤 전환" style="min-width:58px;text-align:center;font-family:Consolas,monospace;font-weight:700;">100%</button>
+      <button id="pptx-zoom-in" class="pptx-btn" title="확대 (최대 300%)">🔍 +</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="pptx-slideshow" class="pptx-btn" title="3.5초 간격 슬라이드 자동 넘김 재생/일시정지">▶ 슬라이드 쇼</button>
     </div>
@@ -560,14 +566,18 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         var pct = Math.round(pptxScale * 100);
         if (zoomResetBtn) {
           zoomResetBtn.textContent = pct + '%';
-          if (pptxScale > 1.001) {
+          if (Math.abs(pptxScale - 1.7) < 0.05) {
             zoomResetBtn.style.color = '#f97316';
             zoomResetBtn.style.borderColor = 'rgba(249, 115, 22, 0.45)';
-            zoomResetBtn.title = '현재 ' + pct + '% 확대 상태 • 클릭 시 기본 크기(100%)로 복귀';
+            zoomResetBtn.title = '현재 ' + pct + '% (추천 배율) • 클릭 시 100%(기본 화면 맞춤)으로 축소';
+          } else if (pptxScale > 1.001) {
+            zoomResetBtn.style.color = '#f97316';
+            zoomResetBtn.style.borderColor = 'rgba(249, 115, 22, 0.45)';
+            zoomResetBtn.title = '현재 ' + pct + '% 확대 상태 • 클릭 시 170%(추천 배율)로 전환';
           } else {
             zoomResetBtn.style.color = '#f2f3f5';
             zoomResetBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-            zoomResetBtn.title = '기본 크기 (화면 꽉 채움 • 최소 축소 상태)';
+            zoomResetBtn.title = '기본 크기 (화면 전체 맞춤) • 클릭 시 170%(추천 배율)로 확대';
           }
         }
         if (zoomOutBtn) {
@@ -598,7 +608,11 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
       if (zoomResetBtn) {
         zoomResetBtn.addEventListener('click', function() {
-          setPptxZoom(1.0);
+          if (Math.abs(pptxScale - 1.7) < 0.05) {
+            setPptxZoom(1.0);
+          } else {
+            setPptxZoom(1.7);
+          }
         });
       }
 
