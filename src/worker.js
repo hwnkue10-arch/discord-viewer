@@ -20,6 +20,91 @@ const FORMAT_META = {
   pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 }
 };
 
+// 이용약관 및 개인정보 처리방침 공통 HTML 렌더러
+function renderLegalPage(title, lastUpdated, sections) {
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>\${title} - Doc Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f172a;
+      color: #cbd5e1;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.7;
+      padding: 40px 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 760px;
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 36px 32px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+    h1 {
+      color: #38bdf8;
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+    .date {
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    h2 {
+      color: #f1f5f9;
+      font-size: 16px;
+      margin: 22px 0 8px;
+    }
+    p, ul {
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    a {
+      color: #38bdf8;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .footer {
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 12px;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>\${title}</h1>
+    <div class="date">최종 수정일: \${lastUpdated}</div>
+    \${sections}
+    <div class="footer">
+      © 2026 Doc Viewer (Discord In-App Multi-Format Viewer). All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 // 16진수 문자열을 Uint8Array로 변환
 function hexToUint8Array(hex) {
   const bytes = new Uint8Array(hex.length / 2);
@@ -1444,6 +1529,63 @@ export default {
       }
 
       return jsonResponse({ type: 4, data: { flags: 64, content: '알 수 없는 요청입니다.' } });
+    }
+
+    // 3-9. 이용약관 및 개인정보 처리방침 라우팅
+    if (url.pathname === '/terms' || url.pathname === '/terms-of-service') {
+      const termsSections = `
+        <p>Doc Viewer(이하 "서비스")를 이용해 주셔서 감사합니다. 본 약관은 Discord 플랫폼 내에서 제공되는 Doc Viewer 애플리케이션 및 인앱 액티비티의 이용 조건을 규정합니다.</p>
+        <h2>제1조 (목적)</h2>
+        <p>본 약관은 Doc Viewer가 제공하는 문서 뷰어 서비스(HTML, PDF, Markdown, PPTX 열람 기능)를 이용함에 있어 서비스 제공자와 이용자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+        <h2>제2조 (서비스의 제공)</h2>
+        <p>1. 본 서비스는 디스코드(Discord) 클라이언트 내에서 사용자가 공유한 문서를 다운로드 없이 즉시 열람할 수 있는 인앱 액티비티 및 슬래시 명령어를 제공합니다.<br>
+        2. 서비스는 연중무휴, 1일 24시간 제공을 원칙으로 하되, 디스코드 API 장애 또는 시스템 유지보수가 필요한 경우 일시 중단될 수 있습니다.</p>
+        <h2>제3조 (이용자의 의무)</h2>
+        <p>이용자는 서비스를 이용함에 있어 다음 각 호의 행위를 하여서는 안 됩니다:</p>
+        <ul>
+          <li>악성코드, 바이러스, 악의적인 스크립트가 포함된 파일의 실행 및 공유</li>
+          <li>타인의 저작권, 지식재산권을 침해하는 문서의 무단 배포</li>
+          <li>디스코드 개발자 서비스 약관(Discord Developer Terms of Service) 및 커뮤니티 가이드라인 위반 행위</li>
+          <li>비정상적인 반복 호출을 통해 서비스 인프라에 과도한 부하를 유발하는 행위</li>
+        </ul>
+        <h2>제4조 (면책 조항)</h2>
+        <p>1. 본 서비스는 있는 그대로("AS IS") 제공되며, 서비스에 열람되는 모든 문서의 내용, 신뢰성 및 무결성에 대해 책임을 지지 않습니다.<br>
+        2. 서비스 이용 중 발생할 수 있는 데이터 손실, 간접 손해 등에 대하여 법률이 허용하는 한도 내에서 책임을 부담하지 않습니다.</p>
+        <h2>제5조 (문의)</h2>
+        <p>서비스에 대한 문의사항이나 건의사항은 <a href="https://github.com/hwnkue10-arch/discord-viewer/issues" target="_blank">GitHub Issues</a>를 통해 접수해 주시기 바랍니다.</p>
+      `;
+      return new Response(renderLegalPage('Doc Viewer 이용약관 (Terms of Service)', '2026년 10월 30일', termsSections), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
+    }
+
+    if (url.pathname === '/privacy' || url.pathname === '/privacy-policy') {
+      const privacySections = `
+        <p>Doc Viewer(이하 "서비스")는 이용자의 개인정보를 소중하게 생각하며, 관련 법령 및 Discord 개발자 정책을 준수합니다.</p>
+        <h2>제1조 (수집하는 정보 및 수집 방법)</h2>
+        <p><strong>1. 수집하지 않는 정보:</strong> 본 서비스는 이용자의 이메일, 비밀번호, 실명, 결제 정보 등 일체의 민감한 개인 식별 정보를 수집하거나 영구 저장하지 않습니다.<br>
+        <strong>2. 임시 처리 데이터:</strong> 디스코드 액티비티 세션 동기화 및 문서 열람 기능을 위해 다음 정보가 임시 처리될 수 있습니다:</p>
+        <ul>
+          <li>디스코드 채널 ID (Channel ID)</li>
+          <li>디스코드 사용자 식별자 (User ID)</li>
+          <li>열람 대상 문서의 디스코드 CDN URL 및 파일명</li>
+        </ul>
+        <h2>제2조 (정보의 이용 목적 및 보관 기간)</h2>
+        <p>• <strong>이용 목적:</strong> 동일 디스코드 채널 및 액티비티 방에 참여한 사용자 간의 실시간 문서 열람 세션 동기화<br>
+        • <strong>보관 기간:</strong> Cloudflare Workers KV 메모리에 임시 캐싱되며, 최대 24시간 이내에 자동 파기(TTL 만료)됩니다. 영구적인 데이터베이스 저장을 하지 않습니다.</p>
+        <h2>제3조 (개인정보의 제3자 제공 및 공유)</h2>
+        <p>본 서비스는 이용자의 정보를 어떠한 경우에도 상업적 목적으로 제3자에게 판매, 대여 또는 공유하지 않습니다.</p>
+        <h2>제4조 (정보의 보호 및 보안 조치)</h2>
+        <p>1. 디스코드 본사 서버와의 모든 통신은 Ed25519 전자서명 검증(SubtleCrypto)을 통해 위변조를 방지합니다.<br>
+        2. 모든 웹 통신은 SSL/TLS(HTTPS) 암호화 채널을 통해서만 안전하게 전송됩니다.</p>
+        <h2>제5조 (이용자의 권리)</h2>
+        <p>이용자는 언제든지 봇을 디스코드 서버에서 추방하거나 액티비티 실행을 중단함으로써 데이터 접근을 차단할 수 있습니다.</p>
+      `;
+      return new Response(renderLegalPage('Doc Viewer 개인정보 처리방침 (Privacy Policy)', '2026년 10월 30일', privacySections), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
     }
 
     // 4. 디스코드 액티비티 HTML 실시간 렌더링 (GET / 또는 /view, /activity_shell.html)
