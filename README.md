@@ -38,9 +38,9 @@
 | 포맷 | 대표 확장자 | 클라이언트 렌더러 엔진 | 주요 지원 기능 |
 | :---: | :---: | :--- | :--- |
 | **HTML** | `.html`, `.htm` | **Zero-Eval Native Engine** | CSP 완전 무결 이벤트 컴파일, CSS 재귀 프록시, Cloudflare Error 1102 원천 차단 |
-| **PDF** | `.pdf` | **Mozilla PDF.js v3 + Heading Miner** | **도킹형 목차 사이드바**, **소제목 계층 트리(Outline)**, **페이지별 헤드라인 자동 추출(Text Mining)**, **페이지 번호 직접 입력 점프 (`[ 1 ] / 14`)**, 반응형 Canvas, 너비 맞춤, 줌(40%~300%), 방향키 탐색 |
+| **PDF** | `.pdf` | **Mozilla PDF.js v3 + Heading Miner** | **도킹형 목차 사이드바**, **소제목 계층 트리(Outline)**, **페이지별 헤드라인 자동 추출(Text Mining)**, **페이지 번호 직접 입력 점프 (`[ 1 ] / 14`)**, **실시간 줌 퍼센트(%) 표기 및 원클릭 너비 맞춤 토글**, 반응형 Canvas, 줌(40%~300%), 방향키 탐색 |
 | **Markdown** | `.md`, `.markdown` | **Marked + Highlight + Mermaid** | **☀️/🌙 원클릭 다크·라이트 모드 테마 전환**, GitHub 테마, GFM 표, 코드 블록 문법 강조 및 원클릭 복사, Mermaid 다이어그램 실시간 시각화 |
-| **PowerPoint** | `.pptx` | **OOXML Native Engine + JSZip** | 16:9 슬라이드 1:1 벡터 렌더링(Container Query), **도킹형 슬라이드 카드 목차**, **슬라이드 제목 자동 추출**, **슬라이드 번호 직접 입력 점프 (`[ 1 ] / 14`)**, 선형 그라디언트(GradFill)·알약 배지·도형 완벽 복원, 전체화면 |
+| **PowerPoint** | `.pptx` | **OOXML Native Engine + JSZip** | 16:9 슬라이드 1:1 벡터 렌더링(Container Query), **도킹형 슬라이드 카드 목차**, **슬라이드 제목 자동 추출**, **슬라이드 번호 직접 입력 점프 (`[ 1 ] / 14`)**, **▶ 자동 슬라이드 쇼(3.5초 넘김 재생/일시정지)**, 선형 그라디언트(GradFill)·도형 완벽 복원 |
 
 > 💡 **전 포맷 공통 퀵 컨트롤 바:** 액티비티 상단에 새로고침, 닫기, **채널 내 최근 50개 업로드 문서 원클릭 전환 드롭다운**이 기본 탑재되어 있습니다.
 
@@ -85,10 +85,10 @@ Slash (/view) & Context Menu                            0ms Real-Time Sync
 * **SSRF Guard & Payload Limit:** 로컬호스트, 사설망 IP, 클라우드 메타데이터 주소 접근 원천 차단(403) 및 15MB 스트리밍 제한(413).
 
 ### 3. Client-Side Rendering Engines (Zero Server Overhead)
-* **Mozilla PDF.js & Smart Heading Miner:** 브라우저 Canvas 기반 고해상도(DPR 반영) 렌더링. 파일 내장 목차(Outline)의 대제목·소제목 계층 트리 표현뿐만 아니라, 목차가 없는 일반 문서도 `getTextContent()` 기반으로 각 페이지의 핵심 헤드라인을 실시간 자동 추출하여 도킹형 사이드바에 표기.
-* **Marked.js & Highlight.js:** GitHub Dark 스타일 마크다운 파싱 및 프로그래밍 언어별 문법 강조.
+* **Mozilla PDF.js & Smart Heading Miner:** 브라우저 Canvas 기반 고해상도(DPR 반영) 렌더링. 파일 내장 목차(Outline)의 대제목·소제목 계층 트리 표현뿐만 아니라, 목차가 없는 일반 문서도 `getTextContent()` 기반으로 각 페이지의 핵심 헤드라인을 실시간 자동 추출하여 도킹형 사이드바에 표기. 실시간 배율 퍼센트(%) 표기 및 원클릭 너비 맞춤 토글 지원.
+* **Marked.js & Highlight.js:** GitHub Dark/Light 테마 원클릭 전환, 마크다운 파싱 및 프로그래밍 언어별 문법 강조.
 * **Mermaid.js:** 마크다운 내 플로우차트, 시퀀스, 클래스 다이어그램 실시간 SVG 시각화.
-* **OOXML Native Engine & JSZip:** 클라이언트 사이드에서 `.pptx` 압축 해제 후 슬라이드 XML과 미디어를 파싱하여 CSS Container Queries 기반 1:1 슬라이드 벡터 DOM 렌더링. 선형 그라디언트(GradFill) 정밀 복원, 슬라이드별 제목 자동 추출 및 카드형 슬라이드 내비게이터 제공.
+* **OOXML Native Engine & JSZip:** 클라이언트 사이드에서 `.pptx` 압축 해제 후 슬라이드 XML과 미디어를 파싱하여 CSS Container Queries 기반 1:1 슬라이드 벡터 DOM 렌더링. 선형 그라디언트(GradFill) 정밀 복원, 슬라이드별 제목 자동 추출, 카드형 슬라이드 내비게이터 및 ▶ 자동 슬라이드 쇼(3.5초 자동 넘김 재생) 제공.
 * **Smart Docked Navigation:** 문서를 가리지 않고 메인 화면을 오른쪽으로 밀어내는 좌측 분할 사이드바, 원하는 페이지로 즉시 이동하는 `[ 1 ] / 14` 직접 번호 입력 점프 및 방향키 충돌 방지 가드 탑재.
 
 ### 4. Discord Bridge & Hybrid Development
