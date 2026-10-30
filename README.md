@@ -39,7 +39,7 @@
 | :---: | :---: | :--- | :--- |
 | **HTML** | `.html`, `.htm` | **Zero-Eval Native Engine** | CSP 완전 무결 이벤트 컴파일, CSS 재귀 프록시, Cloudflare Error 1102 원천 차단 |
 | **PDF** | `.pdf` | **Mozilla PDF.js v3 + Heading Miner** | **도킹형 목차 사이드바**, **소제목 계층 트리(Outline)**, **페이지별 헤드라인 자동 추출(Text Mining)**, **페이지 번호 직접 입력 점프 (`[ 1 ] / 14`)**, 반응형 Canvas, 너비 맞춤, 줌(40%~300%), 방향키 탐색 |
-| **Markdown** | `.md`, `.markdown` | **Marked + Highlight + Mermaid** | GitHub Dark 테마, GFM 표, 코드 블록 문법 강조 및 원클릭 복사, Mermaid 다이어그램 실시간 시각화 |
+| **Markdown** | `.md`, `.markdown` | **Marked + Highlight + Mermaid** | **☀️/🌙 원클릭 다크·라이트 모드 테마 전환**, GitHub 테마, GFM 표, 코드 블록 문법 강조 및 원클릭 복사, Mermaid 다이어그램 실시간 시각화 |
 | **PowerPoint** | `.pptx` | **OOXML Native Engine + JSZip** | 16:9 슬라이드 1:1 벡터 렌더링(Container Query), **도킹형 슬라이드 카드 목차**, **슬라이드 제목 자동 추출**, **슬라이드 번호 직접 입력 점프 (`[ 1 ] / 14`)**, 선형 그라디언트(GradFill)·알약 배지·도형 완벽 복원, 전체화면 |
 
 > 💡 **전 포맷 공통 퀵 컨트롤 바:** 액티비티 상단에 새로고침, 닫기, **채널 내 최근 50개 업로드 문서 원클릭 전환 드롭다운**이 기본 탑재되어 있습니다.
