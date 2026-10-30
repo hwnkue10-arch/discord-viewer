@@ -336,9 +336,9 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       </div>
       <button id="next-page" class="pdf-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
-      <button id="zoom-out" class="pdf-btn">🔍 -</button>
-      <button id="zoom-fit" class="pdf-btn">맞춤</button>
-      <button id="zoom-in" class="pdf-btn">🔍 +</button>
+      <button id="zoom-out" class="pdf-btn" title="축소 (25% 감소)">🔍 -</button>
+      <button id="zoom-fit" class="pdf-btn" title="클릭 시 창 너비 맞춤 / 100% 전환" style="min-width:62px;text-align:center;font-family:Consolas,monospace;font-weight:700;">100%</button>
+      <button id="zoom-in" class="pdf-btn" title="확대 (25% 증가)">🔍 +</button>
     </div>
   </div>
 
@@ -657,6 +657,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
               scale = desiredScale;
             }
           }
+          updateZoomLabel();
 
           var dpr = window.devicePixelRatio || 1;
           var viewport = page.getViewport({ scale: desiredScale });
@@ -737,23 +738,48 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
       nextBtn.addEventListener('click', onNextPage);
 
+      var zoomFitBtn = document.getElementById('zoom-fit');
+
+      function updateZoomLabel() {
+        if (!zoomFitBtn) return;
+        var pct = Math.round(scale * 100);
+        zoomFitBtn.textContent = pct + '%';
+        if (fitMode) {
+          zoomFitBtn.title = '현재 배율: ' + pct + '% (너비 자동 맞춤 • 클릭 시 100% 원본 전환)';
+          zoomFitBtn.style.color = '#38bdf8';
+          zoomFitBtn.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+        } else {
+          zoomFitBtn.title = '현재 배율: ' + pct + '% (클릭 시 너비 맞춤 전환)';
+          zoomFitBtn.style.color = '#f2f3f5';
+          zoomFitBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+        }
+      }
+
       document.getElementById('zoom-in').addEventListener('click', function() {
         if (!pdfDoc) return;
         fitMode = false;
-        scale = Math.min(scale + 0.25, 3.0);
+        scale = Math.min(scale + 0.2, 3.0);
+        updateZoomLabel();
         queueRenderPage(pageNum);
       });
 
       document.getElementById('zoom-out').addEventListener('click', function() {
         if (!pdfDoc) return;
         fitMode = false;
-        scale = Math.max(scale - 0.25, 0.4);
+        scale = Math.max(scale - 0.2, 0.4);
+        updateZoomLabel();
         queueRenderPage(pageNum);
       });
 
       document.getElementById('zoom-fit').addEventListener('click', function() {
         if (!pdfDoc) return;
-        fitMode = true;
+        if (fitMode) {
+          fitMode = false;
+          scale = 1.0;
+        } else {
+          fitMode = true;
+        }
+        updateZoomLabel();
         queueRenderPage(pageNum);
       });
 

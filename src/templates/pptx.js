@@ -306,7 +306,7 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       </div>
       <button id="next-slide" class="pptx-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
-      <button id="pptx-fullscreen" class="pptx-btn">⛶ 전체화면</button>
+      <button id="pptx-slideshow" class="pptx-btn" title="3.5초 간격 슬라이드 자동 넘김 재생/일시정지">▶ 슬라이드 쇼</button>
     </div>
   </div>
 
@@ -493,13 +493,46 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         }
       });
 
-      document.getElementById('pptx-fullscreen').addEventListener('click', function() {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(function() {});
-        } else {
-          document.exitFullscreen().catch(function() {});
+      var slideshowTimer = null;
+      var slideshowBtn = document.getElementById('pptx-slideshow');
+
+      function stopSlideshow() {
+        if (slideshowTimer) {
+          clearInterval(slideshowTimer);
+          slideshowTimer = null;
+          if (slideshowBtn) {
+            slideshowBtn.textContent = '▶ 슬라이드 쇼';
+            slideshowBtn.style.color = '#f2f3f5';
+            slideshowBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            slideshowBtn.style.background = '#2b2d31';
+          }
         }
-      });
+      }
+
+      function startSlideshow() {
+        if (totalSlides <= 1) return;
+        stopSlideshow();
+        if (slideshowBtn) {
+          slideshowBtn.textContent = '⏸ 정지';
+          slideshowBtn.style.color = '#f97316';
+          slideshowBtn.style.borderColor = 'rgba(249, 115, 22, 0.45)';
+          slideshowBtn.style.background = 'rgba(249, 115, 22, 0.12)';
+        }
+        slideshowTimer = setInterval(function() {
+          if (currentSlide < totalSlides - 1) {
+            showSlide(currentSlide + 1);
+          } else {
+            showSlide(0);
+          }
+        }, 3500);
+      }
+
+      if (slideshowBtn) {
+        slideshowBtn.addEventListener('click', function() {
+          if (slideshowTimer) stopSlideshow();
+          else startSlideshow();
+        });
+      }
 
       function extractColor(parentEl) {
         if (!parentEl) return null;
