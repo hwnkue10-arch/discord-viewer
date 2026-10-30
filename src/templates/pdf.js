@@ -396,6 +396,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
       var pdfDoc = null;
       var pageNum = 1;
+      var currentRenderedPage = null;
       var pageRendering = false;
       var pageNumPending = null;
       var scale = 1.3;
@@ -457,6 +458,10 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         if (!pdfDoc) return;
         var target = Math.max(1, Math.min(num, pdfDoc.numPages));
         if (isNaN(target)) return;
+        if (pageNum !== target) {
+          var container = document.getElementById('pdf-container');
+          if (container) container.scrollTop = 0;
+        }
         pageNum = target;
         queueRenderPage(pageNum);
       }
@@ -645,6 +650,8 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
 
       function renderPage(num) {
+        var isNewPage = (currentRenderedPage !== null && currentRenderedPage !== num);
+        currentRenderedPage = num;
         pageRendering = true;
         pdfDoc.getPage(num).then(function(page) {
           var container = document.getElementById('pdf-container');
@@ -679,6 +686,11 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
             pageRendering = false;
             loadingEl.style.display = 'none';
             canvas.style.display = 'block';
+
+            if (isNewPage) {
+              var container = document.getElementById('pdf-container');
+              if (container) container.scrollTop = 0;
+            }
 
             if (pageNumPending !== null) {
               renderPage(pageNumPending);

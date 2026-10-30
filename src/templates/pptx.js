@@ -247,6 +247,15 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       background: #1e293b;
       position: relative;
     }
+    #pptx-viewport {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: auto;
+      flex-shrink: 0;
+      width: 100%;
+      height: 100%;
+    }
     #pptx-canvas {
       max-width: 96%;
       max-height: calc(100vh - 88px);
@@ -306,6 +315,10 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       </div>
       <button id="next-slide" class="pptx-btn" disabled>다음 ▶</button>
       <span style="color:#4b5563;margin:0 2px;">|</span>
+      <button id="pptx-zoom-out" class="pptx-btn" title="축소 (최소 100%)" disabled>🔍 -</button>
+      <button id="pptx-zoom-reset" class="pptx-btn" title="클릭 시 기본 크기(100%)로 복귀" style="min-width:58px;text-align:center;font-family:Consolas,monospace;font-weight:700;">100%</button>
+      <button id="pptx-zoom-in" class="pptx-btn" title="확대 (최대 250%)">🔍 +</button>
+      <span style="color:#4b5563;margin:0 2px;">|</span>
       <button id="pptx-slideshow" class="pptx-btn" title="3.5초 간격 슬라이드 자동 넘김 재생/일시정지">▶ 슬라이드 쇼</button>
     </div>
   </div>
@@ -329,8 +342,10 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         <div class="spinner"></div>
         <div id="pptx-loading-text">⚡ PowerPoint 슬라이드를 불러오는 중입니다...</div>
       </div>
-      <canvas id="pptx-canvas" width="1280" height="720"></canvas>
-      <div id="pptx-dom-stage"></div>
+      <div id="pptx-viewport">
+        <canvas id="pptx-canvas" width="1280" height="720"></canvas>
+        <div id="pptx-dom-stage"></div>
+      </div>
     </div>
   </div>
 
@@ -454,8 +469,17 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
       async function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
+        var isSlideChange = (currentSlide !== index);
         currentSlide = index;
         updateControls();
+
+        if (isSlideChange) {
+          var stageEl = document.getElementById('stage');
+          if (stageEl) {
+            stageEl.scrollTop = 0;
+            stageEl.scrollLeft = 0;
+          }
+        }
 
         if (activeMode === 'canvas' && pptxViewer) {
           try {
@@ -490,8 +514,68 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           if (currentSlide > 0) showSlide(currentSlide - 1);
         } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
           if (currentSlide < totalSlides - 1) showSlide(currentSlide + 1);
+        } else if (e.key === '+' || e.key === '=') {
+          setPptxZoom(pptxScale + 0.25);
+        } else if (e.key === '-' || e.key === '_') {
+          setPptxZoom(pptxScale - 0.25);
+        } else if (e.key === '0') {
+          setPptxZoom(1.0);
         }
       });
+
+      var pptxScale = 1.0;
+      var zoomOutBtn = document.getElementById('pptx-zoom-out');
+      var zoomInBtn = document.getElementById('pptx-zoom-in');
+      var zoomResetBtn = document.getElementById('pptx-zoom-reset');
+      var viewportEl = document.getElementById('pptx-viewport');
+
+      function updateZoomUi() {
+        var pct = Math.round(pptxScale * 100);
+        if (zoomResetBtn) {
+          zoomResetBtn.textContent = pct + '%';
+          if (pptxScale > 1.001) {
+            zoomResetBtn.style.color = '#f97316';
+            zoomResetBtn.style.borderColor = 'rgba(249, 115, 22, 0.45)';
+            zoomResetBtn.title = '현재 ' + pct + '% 확대 상태 • 클릭 시 기본 크기(100%)로 복귀';
+          } else {
+            zoomResetBtn.style.color = '#f2f3f5';
+            zoomResetBtn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            zoomResetBtn.title = '기본 크기 (화면 꽉 채움 • 최소 축소 상태)';
+          }
+        }
+        if (zoomOutBtn) {
+          zoomOutBtn.disabled = (pptxScale <= 1.001);
+        }
+        if (zoomInBtn) {
+          zoomInBtn.disabled = (pptxScale >= 2.499);
+        }
+        if (viewportEl) {
+          viewportEl.style.zoom = pptxScale;
+        }
+      }
+
+      function setPptxZoom(newScale) {
+        pptxScale = Math.max(1.0, Math.min(newScale, 2.5));
+        updateZoomUi();
+      }
+
+      if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', function() {
+          setPptxZoom(pptxScale + 0.25);
+        });
+      }
+
+      if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', function() {
+          setPptxZoom(pptxScale - 0.25);
+        });
+      }
+
+      if (zoomResetBtn) {
+        zoomResetBtn.addEventListener('click', function() {
+          setPptxZoom(1.0);
+        });
+      }
 
       var slideshowTimer = null;
       var slideshowBtn = document.getElementById('pptx-slideshow');
