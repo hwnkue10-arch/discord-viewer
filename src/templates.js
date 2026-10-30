@@ -172,13 +172,12 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), border-right-width 0.22s ease;
+      transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-right-width 0.25s ease;
       height: 100%;
       z-index: 10;
     }
     .viewer-sidebar.open {
       width: 280px;
-      min-width: 280px;
       border-right: 1px solid #2b2d31;
     }
     .sidebar-inner {
@@ -188,6 +187,11 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .viewer-sidebar.open .sidebar-inner {
+      transform: translateX(0);
     }
     .sidebar-header {
       padding: 12px 14px;
@@ -1151,13 +1155,12 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), border-right-width 0.22s ease;
+      transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-right-width 0.25s ease;
       height: 100%;
       z-index: 10;
     }
     .viewer-sidebar.open {
       width: 290px;
-      min-width: 290px;
       border-right: 1px solid #1e293b;
     }
     .sidebar-inner {
@@ -1167,6 +1170,11 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .viewer-sidebar.open .sidebar-inner {
+      transform: translateX(0);
     }
     .sidebar-header {
       padding: 12px 14px;

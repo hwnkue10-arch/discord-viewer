@@ -143,69 +143,120 @@ discord-viewer/
 
 ---
 
-## 🛠️ 설치 및 설정 가이드 (Setup & Installation)
+## 🛠️ 자체 설치 및 배포 가이드 (Step-by-Step Setup)
 
-### 1. 사전 준비 (Prerequisites)
-* [Node.js](https://nodejs.org/) (v18 이상)
-* [Discord Developer Portal](https://discord.com/developers/applications) 계정 및 애플리케이션 생성
-* [Cloudflare 계정](https://dash.cloudflare.com/) (Workers 무료 플랜 - 클라우드 배포 시 필요)
+누구나 10분 안에 자신의 디스코드 계정과 Cloudflare에 100% 무료 무서버 뷰어를 구축할 수 있는 단계별 가이드입니다.
 
-### 2. 디스코드 개발자 포털 설정
-1. **애플리케이션 생성:** `New Application` 생성 후 **General Information**에서 `Application ID` 및 `Public Key` 확인
-2. **봇 생성 (`Bot` 탭):**
-   * `Reset Token`을 눌러 **Bot Token** 복사
-   * `Public Bot` 스위치를 **ON**으로 활성화
-3. **액티비티 설정 (`Activities` 탭):**
-   * `Enable Activities` 활성화
+### 1단계: 사전 준비 (Prerequisites)
+1. **[Node.js](https://nodejs.org/) 설치:** v18 이상 최신 LTS 버전
+2. **[Discord 계정](https://discord.com/):** [Discord Developer Portal](https://discord.com/developers/applications)에 로그인할 수 있는 계정
+3. **[Cloudflare 계정](https://dash.cloudflare.com/):** 무료 플랜 (가입 시 신용카드 등록 불필요)
 
-### 3. 공통 프로젝트 환경 설정 (Common Setup)
-모든 터미널 명령어는 **프로젝트 루트 폴더(`discord-viewer/`)**에서 실행합니다:
+---
+
+### 2단계: 디스코드 개발자 포털 설정
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) 접속 후 우측 상단 **`New Application`** 클릭 → 이름 입력(예: `Doc Viewer`)
+2. **`General Information` 탭:**
+   * **`Application ID`** 복사 ➜ (`DISCORD_CLIENT_ID`로 사용)
+   * **`Public Key`** 복사 ➜ (`DISCORD_PUBLIC_KEY`로 사용)
+3. **`Bot` 탭:**
+   * **`Reset Token`** 클릭하여 생성된 **Bot Token** 복사 ➜ (`DISCORD_BOT_TOKEN`으로 사용)
+   * **`Public Bot`** 스위치: **ON**
+   * **`Privileged Gateway Intents`** 항목: **`Message Content Intent`** 스위치를 **ON**으로 활성화
+4. **`Installation` 탭 (어디서나 우클릭 실행 지원):**
+   * **Installation Contexts:** **`User Install`**과 **`Guild Install`**을 **둘 다 체크**
+   * **Install Link:** **`Discord Provided Link`** 선택
+   * **Default Install Settings:**
+     * Scopes: **`applications.commands`**, **`bot`** 선택
+     * Permissions: `Send Messages`, `Read Message History`, `Attach Files` 체크 (또는 Administrator)
+5. **`Activities` 탭 (인앱 팝업 뷰어 활성화):**
+   * **`Enable Activities`** 스위치를 **ON**으로 활성화
+
+---
+
+### 3단계: 프로젝트 다운로드 및 공통 환경 설정
+
+컴퓨터의 터미널(PowerShell 또는 bash)을 열고 순서대로 입력합니다:
 
 ```bash
-# 1) 의존성 패키지 설치
+# 1) 저장소 복제(Clone) 및 프로젝트 폴더 이동
+git clone https://github.com/hwnkue10-arch/discord-viewer.git
+cd discord-viewer
+
+# 2) 의존성 패키지 설치
 npm install
 
-# 2) 환경변수 템플릿 복사 (.env 생성)
-# Windows:
+# 3) 환경변수 템플릿 복사 (.env 생성)
+# Windows (PowerShell / CMD):
 copy .env.example .env
 # macOS / Linux:
 cp .env.example .env
+```
 
-# 생성된 .env 파일을 열고 발급받은 봇 토큰 및 키 정보를 입력합니다:
-# DISCORD_BOT_TOKEN=your_token_here
-# DISCORD_CLIENT_ID=your_client_id_here
-# DISCORD_PUBLIC_KEY=your_public_key_here
+생성된 `.env` 파일을 메모장이나 VS Code로 열고, **2단계에서 복사한 값들을 입력하고 저장**합니다:
+```env
+DISCORD_BOT_TOKEN=여기에_봇_토큰_붙여넣기
+DISCORD_CLIENT_ID=여기에_애플리케이션_ID_붙여넣기
+DISCORD_PUBLIC_KEY=여기에_퍼블릭_키_붙여넣기
+PORT=3000
+```
 
-# 3) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록 (최초 1회)
+환경변수 저장이 끝났다면, 디스코드 본사 서버에 명령어들을 한 번 등록합니다:
+```bash
+# 4) 전역 슬래시 명령어(/view, /도움말) 및 우클릭 메뉴 등록
 npm run register
 ```
+> 터미널에 `🎉 디스코드 전역 명령어 등록 성공!`이 출력되면 명령어 등록이 완료된 것입니다.
 
 ---
 
 ## 🚀 실행 및 배포 모드 선택 (택 1)
 
-공통 환경 설정을 마친 후, 운영 목적에 맞는 실행 방식을 선택합니다:
+상시 24시간 가동되는 **클라우드 무료 배포(모드 1)** 또는 내 컴퓨터에서 코드를 수정하는 **로컬 개발 실행(모드 2)** 중 하나를 선택합니다:
 
-### [모드 1] Cloudflare Workers 서버리스 배포 (운영 환경 ⭐ 강력 추천)
-상시 켜두는 컴퓨터 없이 전 세계 300개 이상의 엣지 데이터센터에서 24시간 100% 무료(유지비 0원)로 구동합니다:
+### [모드 1] Cloudflare Workers 서버리스 배포 (운영 환경 ⭐ 추천)
+서버를 24시간 켜둘 필요 없이 전 세계 300여 개 글로벌 엣지 데이터센터에서 100% 무료(유지비 0원)로 가동됩니다.
 
 ```bash
-# 1) wrangler.toml 환경 설정 파일 생성
-# Windows: copy wrangler.toml.example wrangler.toml  /  macOS·Linux: cp wrangler.toml.example wrangler.toml
-# wrangler.toml 파일의 DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN 값을 입력합니다.
+# 1) Cloudflare 로그인 (최초 1회, 브라우저가 열리면 '승인' 클릭)
+npx wrangler login
 
-# 2) Cloudflare Workers 실서버 배포
+# 2) wrangler.toml 환경 설정 파일 생성
+# Windows:
+copy wrangler.toml.example wrangler.toml
+# macOS / Linux:
+cp wrangler.toml.example wrangler.toml
+
+# 3) wrangler.toml 파일을 열고 2단계에서 복사한 키 값들을 입력합니다:
+# [vars]
+# DISCORD_CLIENT_ID = "여기에_애플리케이션_ID"
+# DISCORD_PUBLIC_KEY = "여기에_퍼블릭_키"
+# DISCORD_BOT_TOKEN = "여기에_봇_토큰"
+
+# 4) Cloudflare Workers 실서버 배포 실행
 npm run deploy
 ```
 
-배포 완료 시 터미널에 출력되는 워커 주소(예: `https://your-worker.workers.dev`)를 개발자 포털에 연동합니다:
-1. **General Information 탭:** **Interactions Endpoint URL**에 워커 주소 입력 후 `Save Changes`
-2. **Activities 탭:** **URL Mappings** 타깃 주소에 동일한 워커 주소 등록
+배포 완료 시 터미널 맨 끝에 고유한 워커 URL이 출력됩니다:
+```text
+Deployed discord-viewer triggers
+  https://discord-viewer.your-subdomain.workers.dev
+```
+
+**마지막 연동 2단계 (디스코드 개발자 포털):**
+1. **`General Information` 탭:**
+   * **`Interactions Endpoint URL`** 칸에 터미널에 출력된 워커 주소(예: `https://discord-viewer.your-subdomain.workers.dev`)를 붙여넣고 우측 하단 초록색 **`Save Changes`** 클릭  
+   *(Cloudflare Worker가 자동으로 Ed25519 서명 핸드셰이크를 통과하여 정상 저장됩니다)*
+2. **`Activities` 탭:**
+   * **`URL Mappings`** 항목의 타깃 URL에 동일한 워커 주소를 등록하고 `Save Changes` 클릭
+3. **봇 초대하기:**
+   * `Installation` 탭의 **`Install Link`** 복사 버튼을 눌러 브라우저에서 열고, 내 서버나 내 계정에 봇을 추가하면 즉시 사용 가능합니다!
 
 ---
 
 ### [모드 2] 로컬 개발 환경 실행 (Node.js 디버깅 모드)
-Cloudflare 배포 없이 개발자 PC 환경에서 Express 웹 서버와 `discord.js` 봇을 직접 구동하여 코드를 수정하고 실시간 디버깅할 때 사용합니다.
+Cloudflare 배포 없이 개발자 PC 환경에서 Express 웹 서버와 `discord.js` 봇을 직접 구동하여 코드를 수정하고 실시간 디버깅할 때 사용합니다. (3단계 공통 환경 설정 완료 후 바로 진행)
 
 #### 1. 로컬 서버 및 봇 동시 실행
 ```bash
