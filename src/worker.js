@@ -709,8 +709,10 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     var base = '';
     try {
       if (typeof window !== 'undefined' && window.location) {
-        var m = window.location.pathname.match(/^(\/\.proxy)/);
-        if (m) base = m[1];
+        var p = window.location.pathname;
+        if (p.indexOf('/.proxy') === 0) {
+          base = '/.proxy';
+        }
       }
     } catch (e) {}
     if (path.indexOf('/') === 0) return base + path;
