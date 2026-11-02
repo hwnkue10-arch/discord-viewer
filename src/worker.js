@@ -661,6 +661,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   const channelId = options.channelId || '';
   const initialFiles = options.files && Array.isArray(options.files) ? options.files : [];
   const safeInitialFiles = JSON.stringify(initialFiles);
+  const safeWorkerOrigin = JSON.stringify(options.workerOrigin || (directUrl ? new URL(directUrl).origin : 'https://discord-viewer.hwnkue10.workers.dev'));
 
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
@@ -688,6 +689,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   var CURRENT_CDN_URL = ${safeCurrentUrl};
   var INLINE_FILES = ${safeInitialFiles} || [];
   var FALLBACK_CHAN_ID = ${JSON.stringify(channelId)};
+  var WORKER_ORIGIN = ${safeWorkerOrigin};
 
   var bar = document.getElementById('discord-activity-helper-bar');
   var refreshBtn = document.getElementById('discord-helper-refresh-btn');
@@ -743,10 +745,20 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       return;
     }
     var name = fileName || 'document';
-    var downloadApiUrl = toAppUrl('/api/download?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name));
+    var downloadApiUrl = WORKER_ORIGIN + '/api/download?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name);
+    var isInsideIframe = (window.self !== window.top);
 
-    showToast('📥 ' + name + ' 다운로드 시작...');
+    if (isInsideIframe) {
+      showToast('🌐 브라우저를 통해 PC [다운로드] 폴더에 저장합니다...');
+      if (typeof window.__discordOpenExternal === 'function') {
+        window.__discordOpenExternal(downloadApiUrl);
+      } else {
+        window.open(downloadApiUrl, '_blank');
+      }
+      return;
+    }
 
+    showToast('📥 [다운로드] 폴더에 저장 중: ' + name);
     fetch(downloadApiUrl)
       .then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -761,14 +773,10 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
         a.click();
         document.body.removeChild(a);
         setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 3000);
-        showToast('✅ ' + name + ' 다운로드 완료!');
+        showToast('✅ PC [다운로드] 폴더에 저장 완료!');
       })
       .catch(function() {
-        if (typeof window.__discordOpenExternal === 'function') {
-          window.__discordOpenExternal(downloadApiUrl);
-        } else {
-          window.open(downloadApiUrl, '_blank');
-        }
+        window.open(downloadApiUrl, '_blank');
       });
   }
 
@@ -1080,7 +1088,7 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, workerOrigin, targetUr
   }
 
   const directUrl = `${workerOrigin}/?cdn_url=${encodeURIComponent(targetUrl)}&title=${encodeURIComponent(fileTitle)}&_t=${Date.now()}`;
-  const helperBar = buildHelperBar(fileTitle, directUrl, targetUrl, options);
+  const helperBar = buildHelperBar(fileTitle, directUrl, targetUrl, Object.assign({}, options, { workerOrigin: workerOrigin }));
 
   const listenerEntries = [];
   let aidCounter = 0;
