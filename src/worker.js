@@ -665,12 +665,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
-  <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;" id="discord-helper-cur-title">${fileTitle}</span>
-  <div id="discord-helper-nav-group" style="display:inline-flex;align-items:center;gap:3px;margin:0 2px;">
-    <button id="discord-helper-prev-btn" style="background:#334155;color:#e2e8f0;border:none;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:bold;cursor:pointer;line-height:1;" title="이전 문서 열기">◀</button>
-    <span id="discord-helper-index-badge" style="font-size:10px;color:#94a3b8;font-weight:600;min-width:24px;text-align:center;">1/1</span>
-    <button id="discord-helper-next-btn" style="background:#334155;color:#e2e8f0;border:none;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:bold;cursor:pointer;line-height:1;" title="다음 문서 열기">▶</button>
-  </div>
+  <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;" id="discord-helper-cur-title">${fileTitle}</span>
   <button id="discord-helper-switch-btn" style="background:#059669;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="대화 및 채널 내 다른 문서로 즉시 전환">📂 파일 전환</button>
   <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
   <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:11px;font-weight:600;cursor:pointer;line-height:1;" title="도구 모음 접기">− 접기</button>
@@ -701,31 +696,12 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   var switchModal = document.getElementById('discord-file-switcher-modal');
   var switchClose = document.getElementById('discord-switcher-close-btn');
   var switchList = document.getElementById('discord-switcher-list');
-  var prevBtn = document.getElementById('discord-helper-prev-btn');
-  var nextBtn = document.getElementById('discord-helper-next-btn');
-  var indexBadge = document.getElementById('discord-helper-index-badge');
-  var navGroup = document.getElementById('discord-helper-nav-group');
 
   var allLoadedFiles = INLINE_FILES.slice();
 
   function getChannelId() {
     var params = new URLSearchParams(window.location.search);
     return params.get('channel_id') || FALLBACK_CHAN_ID || '';
-  }
-
-  function updateNavigationUI() {
-    if (!allLoadedFiles || allLoadedFiles.length <= 1) {
-      if (navGroup) navGroup.style.display = 'none';
-      return;
-    }
-    if (navGroup) navGroup.style.display = 'inline-flex';
-    var curIdx = allLoadedFiles.findIndex(function(f) {
-      return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
-    });
-    if (curIdx === -1) curIdx = 0;
-    if (indexBadge) indexBadge.textContent = (curIdx + 1) + '/' + allLoadedFiles.length;
-    if (prevBtn) prevBtn.disabled = false;
-    if (nextBtn) nextBtn.disabled = false;
   }
 
   function switchToFile(f) {
@@ -749,32 +725,6 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       keepalive: true
     }).finally(function() {
       window.location.href = newUrl.toString();
-    });
-  }
-
-  if (prevBtn) {
-    prevBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      if (!allLoadedFiles || allLoadedFiles.length <= 1) return;
-      var curIdx = allLoadedFiles.findIndex(function(f) {
-        return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
-      });
-      if (curIdx === -1) curIdx = 0;
-      var prevIdx = (curIdx - 1 + allLoadedFiles.length) % allLoadedFiles.length;
-      switchToFile(allLoadedFiles[prevIdx]);
-    });
-  }
-
-  if (nextBtn) {
-    nextBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      if (!allLoadedFiles || allLoadedFiles.length <= 1) return;
-      var curIdx = allLoadedFiles.findIndex(function(f) {
-        return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
-      });
-      if (curIdx === -1) curIdx = 0;
-      var nextIdx = (curIdx + 1) % allLoadedFiles.length;
-      switchToFile(allLoadedFiles[nextIdx]);
     });
   }
 
@@ -893,8 +843,6 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       switchModal.style.display = 'none';
     });
   }
-
-  updateNavigationUI();
 
   // 실시간 액티비티 세션 동기화
   var isRedirecting = false;
