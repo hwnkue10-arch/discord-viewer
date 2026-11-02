@@ -30,13 +30,13 @@ function renderPptxViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       align-items: center;
       justify-content: space-between;
       padding: 0 16px;
-      padding-right: 260px;
+      padding-right: 360px;
       flex-shrink: 0;
       z-index: 100;
       user-select: none;
       gap: 8px;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 860px) {
       #pptx-toolbar { padding-right: 14px; }
     }
     .pptx-meta {

@@ -29,7 +29,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       align-items: center;
       justify-content: space-between;
       padding: 0 14px;
-      padding-right: 260px;
+      padding-right: 360px;
       gap: 10px;
       flex-shrink: 0;
       z-index: 100;
@@ -40,7 +40,7 @@ function renderPdfViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     #pdf-toolbar::-webkit-scrollbar {
       display: none;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 860px) {
       #pdf-toolbar { padding-right: 14px; }
     }
     .pdf-meta {

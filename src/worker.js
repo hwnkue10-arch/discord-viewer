@@ -667,6 +667,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
   <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;" id="discord-helper-cur-title">${fileTitle}</span>
   <button id="discord-helper-switch-btn" style="background:#059669;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="대화 및 채널 내 다른 문서로 즉시 전환">📂 파일 전환</button>
+  <button id="discord-helper-download-btn" style="background:#0284c7;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="현재 열람 중인 파일 다운로드">⬇️ 다운로드</button>
   <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
   <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:11px;font-weight:600;cursor:pointer;line-height:1;" title="도구 모음 접기">− 접기</button>
 </div>
@@ -693,6 +694,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
   var closeBtn = document.getElementById('discord-helper-close-btn');
   var launcherBtn = document.getElementById('discord-helper-launcher-btn');
   var switchBtn = document.getElementById('discord-helper-switch-btn');
+  var downloadBtn = document.getElementById('discord-helper-download-btn');
   var switchModal = document.getElementById('discord-file-switcher-modal');
   var switchClose = document.getElementById('discord-switcher-close-btn');
   var switchList = document.getElementById('discord-switcher-list');
@@ -717,6 +719,57 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     } catch (e) {}
     if (path.indexOf('/') === 0) return base + path;
     return base + '/' + path;
+  }
+
+  function showToast(msg) {
+    var toast = document.getElementById('discord-toast-msg');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'discord-toast-msg';
+      toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.95);backdrop-filter:blur(8px);border:1px solid rgba(56,189,248,0.5);color:#f8fafc;padding:8px 16px;border-radius:20px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;transition:opacity 0.2s;opacity:0;';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(toast.__timer);
+    toast.__timer = setTimeout(function() {
+      toast.style.opacity = '0';
+    }, 2500);
+  }
+
+  function downloadFile(url, fileName) {
+    if (!url) {
+      showToast('⚠️ 다운로드할 파일 주소가 없습니다.');
+      return;
+    }
+    var name = fileName || 'document';
+    var downloadApiUrl = toAppUrl('/api/download?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name));
+
+    showToast('📥 ' + name + ' 다운로드 시작...');
+
+    fetch(downloadApiUrl)
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.blob();
+      })
+      .then(function(blob) {
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 3000);
+        showToast('✅ ' + name + ' 다운로드 완료!');
+      })
+      .catch(function() {
+        if (typeof window.__discordOpenExternal === 'function') {
+          window.__discordOpenExternal(downloadApiUrl);
+        } else {
+          window.open(downloadApiUrl, '_blank');
+        }
+      });
   }
 
   function switchToFile(f) {
@@ -777,7 +830,10 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       html += '    <div style="font-weight:600;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">' + (isCurrent ? '▶ ' : '') + icon + ' ' + f.name + '</div>';
       html += '    <div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + (f.author ? f.author + ' · ' : '') + sizeKb + ' KB' + (isCurrent ? ' (현재 열람)' : '') + '</div>';
       html += '  </div>';
-      html += '  <span style="background:' + color + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;flex-shrink:0;">' + (f.format ? f.format.toUpperCase() : 'DOC') + '</span>';
+      html += '  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
+      html += '    <button class="discord-switcher-download-btn" data-idx="' + idx + '" style="background:rgba(2,132,199,0.25);border:1px solid rgba(2,132,199,0.5);color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;transition:background 0.15s;" title="이 문서 다운로드">⬇️</button>';
+      html += '    <span style="background:' + color + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;">' + (f.format ? f.format.toUpperCase() : 'DOC') + '</span>';
+      html += '  </div>';
       html += '</div>';
     });
     switchList.innerHTML = html;
@@ -794,6 +850,16 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       item.addEventListener('click', function() {
         var idx = parseInt(item.getAttribute('data-idx'), 10);
         switchToFile(allLoadedFiles[idx]);
+      });
+    });
+
+    var dlBtns = switchList.querySelectorAll('.discord-switcher-download-btn');
+    dlBtns.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        var f = allLoadedFiles[idx];
+        if (f) downloadFile(f.url, f.name);
       });
     });
   }
@@ -826,6 +892,16 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
           switchList.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:10px;">문서 목록을 가져올 수 없습니다.</div>';
         }
       });
+  }
+
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var curTitleEl = document.getElementById('discord-helper-cur-title');
+      var name = (curTitleEl && curTitleEl.textContent) ? curTitleEl.textContent.trim() : 'document';
+      name = name.replace(/^⏳\s*전환\s*중:\s*/, '');
+      downloadFile(CURRENT_CDN_URL, name);
+    });
   }
 
   if (refreshBtn) {
@@ -1521,6 +1597,43 @@ export default {
         } catch (e) {}
       }
       return jsonResponse({ files });
+    }
+
+    // 1-3. 파일 다운로드 전용 프록시 (Content-Disposition attachment 헤더 보존)
+    if (url.pathname === '/api/download') {
+      const downloadUrl = url.searchParams.get('url');
+      const downloadName = url.searchParams.get('name') || 'document';
+      if (!downloadUrl) return new Response('Missing url parameter', { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
+
+      try {
+        const parsed = new URL(downloadUrl);
+        const allowedHosts = ['cdn.discordapp.com', 'media.discordapp.net'];
+        if (!allowedHosts.includes(parsed.hostname)) {
+          return new Response('Blocked domain', { status: 403, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        const upstreamRes = await fetch(downloadUrl);
+        if (!upstreamRes.ok) {
+          return new Response('Origin returned ' + upstreamRes.status, { status: upstreamRes.status, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        const safeAsciiName = downloadName.replace(/[^\x20-\x7E]/g, '_');
+        const encodedUtf8Name = encodeURIComponent(downloadName);
+        const disposition = 'attachment; filename="' + safeAsciiName + '"; filename*=UTF-8\'\'' + encodedUtf8Name;
+        const contentType = upstreamRes.headers.get('content-type') || 'application/octet-stream';
+
+        return new Response(upstreamRes.body, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': disposition,
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=86400'
+          }
+        });
+      } catch (e) {
+        return new Response('Download error: ' + e.message, { status: 500 });
+      }
     }
 
     // 2. 외부 에셋 보안 프록시 (/api/proxy/* 및 /api/asset-proxy)
