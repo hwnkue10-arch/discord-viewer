@@ -68,23 +68,40 @@ const viewContextMenuCommand = new ContextMenuCommandBuilder()
   .setIntegrationTypes([0, 1])
   .setContexts([0, 1, 2]);
 
-// 실행 버튼 및 임베드 생성 헬퍼 함수
-function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사용자') {
+// 실행 버튼 및 임베드 생성 헬퍼 함수 (다중 첨부파일 지원)
+function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사용자', availableFiles = []) {
   attachmentCache.set(attachment.id, {
     name: attachment.name,
     url: attachment.url,
     size: attachment.size
   });
 
+  if (availableFiles && availableFiles.length > 0) {
+    availableFiles.forEach((f) => {
+      attachmentCache.set(f.id, {
+        name: f.name,
+        url: f.url,
+        size: f.size
+      });
+    });
+  }
+
   const format = getFileFormat(attachment.name) || 'html';
   const meta = FORMAT_META[format] || { icon: '📄', label: '문서', color: 0x5865f2 };
+
+  let description = `아래 버튼을 누르면 **디스코드 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.`;
+  if (availableFiles && availableFiles.length > 1) {
+    const fileSummary = availableFiles
+      .map((f, i) => `${f.id === attachment.id ? '▶ **' : '• '}${i + 1}. ${f.name}${f.id === attachment.id ? '** (현재 선택됨)' : ''}`)
+      .slice(0, 6)
+      .join('\n');
+    description = `📎 **대화에 첨부된 문서 (총 ${availableFiles.length}개 감지됨)**\n${fileSummary}${availableFiles.length > 6 ? '\n• ...외 더 있음' : ''}\n\n` + description;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(meta.color)
     .setTitle(`${meta.icon} ${attachment.name} 열기 준비 완료`)
-    .setDescription(
-      `아래 버튼을 누르면 **디스코드 내부 팝업창(Activity)** 또는 **외부 브라우저**에서 **${meta.label}**가 즉시 실행됩니다.`
-    )
+    .setDescription(description)
     .addFields(
       { name: '파일 형식', value: `${meta.icon} ${meta.label}`, inline: true },
       { name: '파일 크기', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
@@ -103,7 +120,29 @@ function buildLaunchPayload(attachment, messageId = 'cmd', uploaderName = '사�
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return { embeds: [embed], components: [row] };
+  const components = [row];
+
+  if (availableFiles && availableFiles.length > 1) {
+    const selectOptions = availableFiles.slice(0, 25).map((f) => {
+      const fFormat = getFileFormat(f.name) || 'html';
+      const fMeta = FORMAT_META[fFormat] || { icon: '📄', label: '문서' };
+      return {
+        label: `${fMeta.icon} ${f.name}`.slice(0, 50),
+        description: `${fMeta.label} • ${(f.size / 1024).toFixed(1)} KB`,
+        value: `select_file:${messageId}:${f.id}`,
+        default: f.id === attachment.id
+      };
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId('select_recent_file')
+      .setPlaceholder(`📂 파일 선택 (${availableFiles.length}개 문서 중 전환)...`)
+      .addOptions(selectOptions);
+
+    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  }
+
+  return { embeds: [embed], components };
 }
 
 client.once('clientReady', async () => {
@@ -143,13 +182,22 @@ client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
 
-    // 지원 확장자 첨부파일 찾기
-    const attachment = message.attachments.find(
+    // 지원 확장자 첨부파일 모두 찾기
+    const validAttachments = message.attachments.filter(
       (att) => att.name && getFileFormat(att.name)
     );
-    if (!attachment) return;
+    if (!validAttachments || validAttachments.size === 0) return;
 
-    const payload = buildLaunchPayload(attachment, message.id, message.author.username);
+    const filesList = Array.from(validAttachments.values()).map((att) => ({
+      id: att.id,
+      name: att.name,
+      url: att.url,
+      size: att.size,
+      format: getFileFormat(att.name)
+    }));
+
+    const firstAtt = validAttachments.first();
+    const payload = buildLaunchPayload(firstAtt, message.id, message.author.username, filesList);
     await message.reply(payload);
   } catch (error) {
     console.error('❌ 메시지 처리 중 오류:', error);
@@ -193,6 +241,8 @@ client.on('interactionCreate', async (interaction) => {
 
       const messageInput = interaction.options.getString('message');
       let targetMessage = null;
+      let foundMessages = null;
+      let allValidFiles = [];
 
       // 1) 특정 메시지 링크 또는 ID가 입력된 경우
       if (messageInput) {
@@ -208,7 +258,6 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       // 2) 지정이 없으면 현재 채널 최근 50개 메시지를 검색하여 지원 문서 파일 탐색
-      let foundMessages = null;
       if (!targetMessage) {
         try {
           const messages = await interaction.channel.messages.fetch({ limit: 50 });
@@ -231,46 +280,48 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         targetMessage = foundMessages.first();
+
+        foundMessages.forEach((msg) => {
+          msg.attachments.forEach((att) => {
+            if (att.name && getFileFormat(att.name)) {
+              allValidFiles.push({
+                id: att.id,
+                name: att.name,
+                url: att.url,
+                size: att.size,
+                messageId: msg.id,
+                author: msg.author.username
+              });
+            }
+          });
+        });
+      } else {
+        targetMessage.attachments.forEach((att) => {
+          if (att.name && getFileFormat(att.name)) {
+            allValidFiles.push({
+              id: att.id,
+              name: att.name,
+              url: att.url,
+              size: att.size,
+              messageId: targetMessage.id,
+              author: targetMessage.author.username
+            });
+          }
+        });
       }
 
-      const attachment = targetMessage.attachments.find(
+      const currentFiles = Array.from(targetMessage.attachments.values()).filter(
         (att) => att.name && getFileFormat(att.name)
       );
-      if (!attachment) {
+      if (!currentFiles.length) {
         return await interaction.editReply({
           content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx)이 없습니다.'
         });
       }
 
-      const payload = buildLaunchPayload(attachment, targetMessage.id, targetMessage.author.username);
-
-      // 만약 최근 메시지 중 지원 파일이 2개 이상 발견되면, 다른 파일도 즉시 고를 수 있는 드롭다운 메뉴 추가!
-      if (foundMessages && foundMessages.size > 1) {
-        const selectOptions = [];
-        foundMessages.forEach((msg) => {
-          msg.attachments.forEach((att) => {
-            const fmt = getFileFormat(att.name);
-            if (fmt && selectOptions.length < 10) {
-              const meta = FORMAT_META[fmt] || { icon: '📄', label: '문서' };
-              selectOptions.push({
-                label: `${meta.icon} ${att.name}`.slice(0, 50),
-                description: `${meta.label} • ${msg.author.username} • ${(att.size / 1024).toFixed(1)} KB`,
-                value: `select_file:${msg.id}:${att.id}`,
-                default: att.id === attachment.id
-              });
-            }
-          });
-        });
-
-        if (selectOptions.length > 1) {
-          const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('select_recent_file')
-            .setPlaceholder('📂 최근 업로드된 다른 문서 파일 선택...')
-            .addOptions(selectOptions);
-
-          payload.components.push(new ActionRowBuilder().addComponents(selectMenu));
-        }
-      }
+      const firstAttachment = currentFiles[0];
+      const filesToUse = allValidFiles.length > 0 ? allValidFiles : currentFiles;
+      const payload = buildLaunchPayload(firstAttachment, targetMessage.id, targetMessage.author.username, filesToUse);
 
       return await interaction.editReply(payload);
     }
@@ -283,20 +334,62 @@ client.on('interactionCreate', async (interaction) => {
   ) {
     const [, msgId, attId] = interaction.values[0].split(':');
     try {
-      const msg = await interaction.channel.messages.fetch(msgId);
-      const att = msg.attachments.get(attId);
-      if (att) {
-        const updatedPayload = buildLaunchPayload(att, msg.id, msg.author.username);
+      let freshCdnUrl = null;
+      let freshFileName = null;
+      let freshSize = 0;
+      let authorName = '사용자';
+
+      if (msgId && msgId !== 'cmd' && interaction.channel) {
+        try {
+          const msg = await interaction.channel.messages.fetch(msgId);
+          authorName = msg.author.username;
+          const att = msg.attachments.get(attId);
+          if (att) {
+            freshCdnUrl = att.url;
+            freshFileName = att.name;
+            freshSize = att.size;
+          }
+        } catch (fetchErr) {}
+      }
+
+      if (!freshCdnUrl) {
+        const cached = attachmentCache.get(attId);
+        if (cached) {
+          freshCdnUrl = cached.url;
+          freshFileName = cached.name;
+          freshSize = cached.size || 0;
+        }
+      }
+
+      if (freshCdnUrl) {
+        let preservedFiles = [];
         if (interaction.message.components[1]) {
           const originalMenu = interaction.message.components[1].components[0];
-          const newMenu = StringSelectMenuBuilder.from(originalMenu).setOptions(
-            originalMenu.options.map((opt) => ({
-              ...opt.data,
-              default: opt.data.value === interaction.values[0]
-            }))
-          );
-          updatedPayload.components.push(new ActionRowBuilder().addComponents(newMenu));
+          preservedFiles = originalMenu.options.map((opt) => {
+            const [, mId, aId] = opt.value.split(':');
+            return {
+              id: aId,
+              name: opt.label.replace(/^.*?\s/, ''),
+              size: 0,
+              url: (attachmentCache.get(aId) && attachmentCache.get(aId).url) || freshCdnUrl
+            };
+          });
         }
+
+        const targetAttachment = {
+          id: attId,
+          name: freshFileName,
+          url: freshCdnUrl,
+          size: freshSize
+        };
+
+        const updatedPayload = buildLaunchPayload(
+          targetAttachment,
+          msgId,
+          authorName,
+          preservedFiles.length > 0 ? preservedFiles : [targetAttachment]
+        );
+
         return await interaction.update(updatedPayload);
       }
     } catch (menuErr) {
@@ -308,16 +401,26 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isMessageContextMenuCommand()) {
     if (interaction.commandName === '파일 바로보기' || interaction.commandName === 'HTML 파일 실행') {
       const targetMsg = interaction.targetMessage;
-      const file = targetMsg.attachments.find(
+      const validFiles = targetMsg.attachments.filter(
         (att) => att.name && getFileFormat(att.name)
       );
-      if (!file) {
+      if (!validFiles || validFiles.size === 0) {
         return await interaction.reply({
           content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx)이 없습니다.',
           flags: MessageFlags.Ephemeral
         });
       }
-      const payload = buildLaunchPayload(file, targetMsg.id, interaction.user.username);
+
+      const filesList = Array.from(validFiles.values()).map((att) => ({
+        id: att.id,
+        name: att.name,
+        url: att.url,
+        size: att.size,
+        format: getFileFormat(att.name)
+      }));
+
+      const firstFile = validFiles.first();
+      const payload = buildLaunchPayload(firstFile, targetMsg.id, interaction.user.username, filesList);
       payload.flags = MessageFlags.Ephemeral;
       return await interaction.reply(payload);
     }
@@ -364,6 +467,45 @@ client.on('interactionCreate', async (interaction) => {
       });
     }
 
+    // 3) 대화에 함께 첨부된 모든 파일 목록(messageFiles) 추출 (Activity 내 파일 전환 지원)
+    let messageFiles = [];
+    if (messageId && messageId !== 'cmd' && interaction.channel) {
+      try {
+        const targetMessage = await interaction.channel.messages.fetch(messageId);
+        if (targetMessage && targetMessage.attachments) {
+          targetMessage.attachments.forEach((att) => {
+            const fmt = getFileFormat(att.name);
+            if (fmt) {
+              messageFiles.push({
+                id: att.id,
+                name: att.name,
+                url: att.url,
+                size: att.size,
+                format: fmt
+              });
+            }
+          });
+        }
+      } catch (fetchErr) {}
+    }
+
+    if (messageFiles.length === 0 && interaction.message && interaction.message.components[1]) {
+      const selectMenu = interaction.message.components[1].components[0];
+      if (selectMenu && selectMenu.options) {
+        messageFiles = selectMenu.options.map((opt) => {
+          const [, mId, aId] = opt.value.split(':');
+          const cached = attachmentCache.get(aId);
+          return {
+            id: aId,
+            name: opt.label.replace(/^.*?\s/, ''),
+            url: (cached && cached.url) || freshCdnUrl,
+            size: (cached && cached.size) || 0,
+            format: getFileFormat(opt.label)
+          };
+        });
+      }
+    }
+
     // 액티비티 팝업이 열리자마자 이 파일을 바로 띄울 수 있도록 서버 세션 업데이트
     setLatestSession({
       guildId: interaction.guildId || 'dm',
@@ -371,13 +513,14 @@ client.on('interactionCreate', async (interaction) => {
       fileName: freshFileName,
       cdnUrl: freshCdnUrl,
       requestedBy: interaction.user.username,
+      messageFiles: messageFiles,
       updatedAt: Date.now()
     });
 
     const publicBaseUrl = (
       process.env.PUBLIC_ACTIVITY_URL || `http://localhost:${process.env.PORT || 3000}`
     ).replace(/\/$/, '');
-    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Document Viewer')}&_t=${Date.now()}`;
+    const directPreviewUrl = `${publicBaseUrl}/activity_shell.html?cdn_url=${encodeURIComponent(freshCdnUrl)}&title=${encodeURIComponent(freshFileName || 'Document Viewer')}&channel_id=${encodeURIComponent(interaction.channelId)}&_t=${Date.now()}`;
 
     // 1) [⚡ 디스코드 내부 팝업으로 즉시 실행] 버튼을 누른 경우 -> 액티비티 팝업 실행
     if (isPopup) {

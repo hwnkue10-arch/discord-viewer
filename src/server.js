@@ -562,21 +562,31 @@ function buildRuntimeShimScript(discordClientId) {
 }
 
 // 플로팅 헬퍼 바 생성 (새 창 버튼 제거, 접기/펼치기 원클릭 토글 버튼 제공)
-function buildHelperBar(fileTitle, directUrl) {
+function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
+  const safeCurrentUrl = JSON.stringify(currentCdnUrl || '');
+  const channelId = options.channelId || '';
+  const initialFiles = options.files && Array.isArray(options.files) ? options.files : [];
+  const safeInitialFiles = JSON.stringify(initialFiles);
+
   return `
 <div id="discord-activity-helper-bar" style="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;align-items:center;gap:6px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;box-shadow:0 4px 16px rgba(0,0,0,0.4);user-select:none;">
   <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
-  <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${fileTitle}</span>
-  <button id="discord-helper-switch-btn" style="background:#059669;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="채널 내 다른 문서로 즉시 전환">📂 파일 전환</button>
+  <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;" id="discord-helper-cur-title">${fileTitle}</span>
+  <div id="discord-helper-nav-group" style="display:inline-flex;align-items:center;gap:3px;margin:0 2px;">
+    <button id="discord-helper-prev-btn" style="background:#334155;color:#e2e8f0;border:none;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:bold;cursor:pointer;line-height:1;" title="이전 문서 열기">◀</button>
+    <span id="discord-helper-index-badge" style="font-size:10px;color:#94a3b8;font-weight:600;min-width:24px;text-align:center;">1/1</span>
+    <button id="discord-helper-next-btn" style="background:#334155;color:#e2e8f0;border:none;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:bold;cursor:pointer;line-height:1;" title="다음 문서 열기">▶</button>
+  </div>
+  <button id="discord-helper-switch-btn" style="background:#059669;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;" title="대화 및 채널 내 다른 문서로 즉시 전환">📂 파일 전환</button>
   <button id="discord-helper-refresh-btn" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s;">🔄 새로고침</button>
   <button id="discord-helper-close-btn" style="background:transparent;color:#94a3b8;border:none;padding:2px 6px;font-size:11px;font-weight:600;cursor:pointer;line-height:1;" title="도구 모음 접기">− 접기</button>
 </div>
 <button id="discord-helper-launcher-btn" style="display:none;position:fixed;top:10px;right:10px;z-index:2147483647;align-items:center;gap:5px;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.22);padding:5px 11px;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#38bdf8;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.4);cursor:pointer;user-select:none;transition:all 0.2s;" title="도구 모음 열기">
   <span>📂 파일 도구 ▾</span>
 </button>
-<div id="discord-file-switcher-modal" style="display:none;position:fixed;top:46px;right:10px;z-index:2147483647;background:rgba(15,23,42,0.96);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.18);padding:12px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);width:310px;max-height:420px;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;">
+<div id="discord-file-switcher-modal" style="display:none;position:fixed;top:46px;right:10px;z-index:2147483647;background:rgba(15,23,42,0.96);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.18);padding:12px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);width:320px;max-height:440px;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#f1f5f9;">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.1);">
-    <strong style="color:#38bdf8;font-size:13px;">📂 채널 내 최근 문서 선택</strong>
+    <strong style="color:#38bdf8;font-size:13px;" id="discord-switcher-header-title">📂 문서 선택 및 전환</strong>
     <button id="discord-switcher-close-btn" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:12px;">✕</button>
   </div>
   <div id="discord-switcher-list" style="display:flex;flex-direction:column;gap:6px;">
@@ -585,6 +595,10 @@ function buildHelperBar(fileTitle, directUrl) {
 </div>
 <script id="discord-helper-bar-script">
 (function() {
+  var CURRENT_CDN_URL = ${safeCurrentUrl};
+  var INLINE_FILES = ${safeInitialFiles} || [];
+  var FALLBACK_CHAN_ID = ${JSON.stringify(channelId)};
+
   var bar = document.getElementById('discord-activity-helper-bar');
   var refreshBtn = document.getElementById('discord-helper-refresh-btn');
   var closeBtn = document.getElementById('discord-helper-close-btn');
@@ -593,6 +607,149 @@ function buildHelperBar(fileTitle, directUrl) {
   var switchModal = document.getElementById('discord-file-switcher-modal');
   var switchClose = document.getElementById('discord-switcher-close-btn');
   var switchList = document.getElementById('discord-switcher-list');
+  var prevBtn = document.getElementById('discord-helper-prev-btn');
+  var nextBtn = document.getElementById('discord-helper-next-btn');
+  var indexBadge = document.getElementById('discord-helper-index-badge');
+  var navGroup = document.getElementById('discord-helper-nav-group');
+
+  var allLoadedFiles = INLINE_FILES.slice();
+
+  function getChannelId() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get('channel_id') || FALLBACK_CHAN_ID || '';
+  }
+
+  function updateNavigationUI() {
+    if (!allLoadedFiles || allLoadedFiles.length <= 1) {
+      if (navGroup) navGroup.style.display = 'none';
+      return;
+    }
+    if (navGroup) navGroup.style.display = 'inline-flex';
+    var curIdx = allLoadedFiles.findIndex(function(f) {
+      return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
+    });
+    if (curIdx === -1) curIdx = 0;
+    if (indexBadge) indexBadge.textContent = (curIdx + 1) + '/' + allLoadedFiles.length;
+    if (prevBtn) prevBtn.disabled = false;
+    if (nextBtn) nextBtn.disabled = false;
+  }
+
+  function switchToFile(f) {
+    if (!f || !f.url) return;
+    var chanId = getChannelId();
+    var newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('cdn_url', f.url);
+    newUrl.searchParams.set('title', f.name);
+    if (chanId) newUrl.searchParams.set('channel_id', chanId);
+    newUrl.searchParams.set('_t', Date.now());
+
+    fetch('/api/latest-session')
+      .catch(function() {})
+      .finally(function() {
+        window.location.href = newUrl.toString();
+      });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (!allLoadedFiles || allLoadedFiles.length <= 1) return;
+      var curIdx = allLoadedFiles.findIndex(function(f) {
+        return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
+      });
+      if (curIdx === -1) curIdx = 0;
+      var prevIdx = (curIdx - 1 + allLoadedFiles.length) % allLoadedFiles.length;
+      switchToFile(allLoadedFiles[prevIdx]);
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (!allLoadedFiles || allLoadedFiles.length <= 1) return;
+      var curIdx = allLoadedFiles.findIndex(function(f) {
+        return (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
+      });
+      if (curIdx === -1) curIdx = 0;
+      var nextIdx = (curIdx + 1) % allLoadedFiles.length;
+      switchToFile(allLoadedFiles[nextIdx]);
+    });
+  }
+
+  function renderFileList(files) {
+    if (!files || !files.length) {
+      switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널에 지원되는 문서가 없습니다.</div>';
+      return;
+    }
+    allLoadedFiles = files;
+    updateNavigationUI();
+
+    var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
+    var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
+    var html = '';
+
+    files.forEach(function(f, idx) {
+      var icon = icons[f.format] || '📄';
+      var color = colors[f.format] || '#38bdf8';
+      var sizeKb = (f.size / 1024).toFixed(1);
+      var isCurrent = (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
+      var currentBorder = isCurrent ? 'border-color:#10b981; background:rgba(16,185,129,0.15);' : '';
+
+      html += '<div class="discord-switcher-item" data-idx="' + idx + '" style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.08);' + currentBorder + 'padding:8px 10px;border-radius:8px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+      html += '  <div style="overflow:hidden;flex:1;">';
+      html += '    <div style="font-weight:600;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">' + (isCurrent ? '▶ ' : '') + icon + ' ' + f.name + '</div>';
+      html += '    <div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + (f.author ? f.author + ' · ' : '') + sizeKb + ' KB' + (isCurrent ? ' (현재 열람)' : '') + '</div>';
+      html += '  </div>';
+      html += '  <span style="background:' + color + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;flex-shrink:0;">' + (f.format ? f.format.toUpperCase() : 'DOC') + '</span>';
+      html += '</div>';
+    });
+    switchList.innerHTML = html;
+
+    var items = switchList.querySelectorAll('.discord-switcher-item');
+    items.forEach(function(item) {
+      item.addEventListener('mouseenter', function() { item.style.background = 'rgba(51,65,85,0.9)'; });
+      item.addEventListener('mouseleave', function() {
+        var idx = parseInt(item.getAttribute('data-idx'), 10);
+        var f = allLoadedFiles[idx];
+        var isCurrent = (CURRENT_CDN_URL && (f.url === CURRENT_CDN_URL || CURRENT_CDN_URL.indexOf(f.id) !== -1));
+        item.style.background = isCurrent ? 'rgba(16,185,129,0.15)' : 'rgba(30,41,59,0.7)';
+      });
+      item.addEventListener('click', function() {
+        var idx = parseInt(item.getAttribute('data-idx'), 10);
+        switchToFile(allLoadedFiles[idx]);
+      });
+    });
+  }
+
+  function loadChannelFiles() {
+    if (allLoadedFiles && allLoadedFiles.length > 0) {
+      renderFileList(allLoadedFiles);
+    }
+
+    var chanId = getChannelId();
+    if (!chanId) {
+      if (!allLoadedFiles || !allLoadedFiles.length) {
+        switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널 정보를 확인할 수 없습니다.</div>';
+      }
+      return;
+    }
+
+    fetch('/api/channel-files?channel_id=' + encodeURIComponent(chanId))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var remoteFiles = data.files || [];
+        if (remoteFiles.length > 0) {
+          renderFileList(remoteFiles);
+        } else if (!allLoadedFiles || !allLoadedFiles.length) {
+          switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널에 지원되는 문서가 없습니다.</div>';
+        }
+      })
+      .catch(function(err) {
+        if (!allLoadedFiles || !allLoadedFiles.length) {
+          switchList.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:10px;">문서 목록을 가져올 수 없습니다.</div>';
+        }
+      });
+  }
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', function(e) {
@@ -635,63 +792,13 @@ function buildHelperBar(fileTitle, directUrl) {
     });
   }
 
-  function loadChannelFiles() {
-    var params = new URLSearchParams(window.location.search);
-    var chanId = params.get('channel_id');
-    if (!chanId) {
-      switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널 정보를 확인할 수 없습니다.</div>';
-      return;
-    }
-    fetch('/api/channel-files?channel_id=' + encodeURIComponent(chanId))
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var files = data.files || [];
-        if (!files.length) {
-          switchList.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">채널에 지원되는 문서가 없습니다.</div>';
-          return;
-        }
-        var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
-        var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
-        var html = '';
-        files.forEach(function(f) {
-          var icon = icons[f.format] || '📄';
-          var color = colors[f.format] || '#38bdf8';
-          var sizeKb = (f.size / 1024).toFixed(1);
-          html += '<div class="discord-switcher-item" data-url="' + encodeURIComponent(f.url) + '" data-title="' + encodeURIComponent(f.name) + '" style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.08);padding:8px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
-          html += '  <div style="overflow:hidden;">';
-          html += '    <div style="font-weight:600;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;">' + icon + ' ' + f.name + '</div>';
-          html += '    <div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + f.author + ' · ' + sizeKb + ' KB</div>';
-          html += '  </div>';
-          html += '  <span style="background:' + color + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;flex-shrink:0;">' + (f.format ? f.format.toUpperCase() : 'DOC') + '</span>';
-          html += '</div>';
-        });
-        switchList.innerHTML = html;
-
-        var items = switchList.querySelectorAll('.discord-switcher-item');
-        items.forEach(function(item) {
-          item.addEventListener('mouseenter', function() { item.style.background = 'rgba(51,65,85,0.9)'; });
-          item.addEventListener('mouseleave', function() { item.style.background = 'rgba(30,41,59,0.7)'; });
-          item.addEventListener('click', function() {
-            var fileUrl = decodeURIComponent(item.getAttribute('data-url'));
-            var fileTitle = decodeURIComponent(item.getAttribute('data-title'));
-            var newUrl = new URL(window.location.href);
-            newUrl.searchParams.set('cdn_url', fileUrl);
-            newUrl.searchParams.set('title', fileTitle);
-            newUrl.searchParams.set('_t', Date.now());
-            window.location.href = newUrl.toString();
-          });
-        });
-      })
-      .catch(function(err) {
-        switchList.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:10px;">문서 목록을 가져올 수 없습니다.</div>';
-      });
-  }
+  updateNavigationUI();
 })();
 </script>`;
 }
 
 // 스트리밍 프록시 재작성 기반 디스코드 액티비티 HTML 렌더러 (순수 addEventListener + 내장 Discord RPC 연동)
-function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, discordClientId) {
+function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, discordClientId, options = {}) {
   let processed = rawHtml;
 
   // 1. 외부 스크립트 (<script src="https://...">) -> 경로 보존형 toProxyUrl 주소로 재작성
@@ -770,7 +877,7 @@ function renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUr
 
   // 8. <body> 끝 부분에 eval-free 생성 리스너 및 helperBar 주입
   const directUrl = `${serverOrigin}/?cdn_url=${encodeURIComponent(targetUrl || '')}&title=${encodeURIComponent(fileTitle || '')}&_t=${Date.now()}`;
-  const helperBar = buildHelperBar(fileTitle || 'Discord HTML Runner', directUrl);
+  const helperBar = buildHelperBar(fileTitle || 'Discord HTML Runner', directUrl, targetUrl, options);
   const generatedScript = buildGeneratedListenersScript(listenerEntries);
   const bodyEndPayload = `\n${generatedScript}\n${helperBar}\n`;
 
@@ -847,14 +954,16 @@ async function handleRenderRequest(req, res) {
 
     if (format === 'pdf') {
       const viewerHtml = renderPdfViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
-      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const sessionFiles = (latestSession && latestSession.messageFiles) || [];
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(finalHtml);
     }
 
     if (format === 'pptx') {
       const viewerHtml = renderPptxViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
-      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const sessionFiles = (latestSession && latestSession.messageFiles) || [];
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(finalHtml);
     }
@@ -866,7 +975,8 @@ async function handleRenderRequest(req, res) {
         if (response.ok) rawMd = await response.text();
       }
       const viewerHtml = renderMarkdownViewer(rawMd, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
-      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const sessionFiles = (latestSession && latestSession.messageFiles) || [];
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(finalHtml);
     }
@@ -899,7 +1009,8 @@ async function handleRenderRequest(req, res) {
       rawHtml = await response.text();
     }
 
-    const finalHtml = renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+    const sessionFiles = (latestSession && latestSession.messageFiles) || [];
+    const finalHtml = renderHtmlForDiscordActivity(rawHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(finalHtml);
   } catch (error) {
@@ -929,35 +1040,44 @@ app.get('/health', (req, res) => {
 app.get('/api/channel-files', async (req, res) => {
   const channelId = req.query.channel_id;
   const botToken = process.env.DISCORD_BOT_TOKEN;
-  if (!channelId || !botToken) {
-    return res.json({ files: [] });
-  }
-  try {
-    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=30`, {
-      headers: { Authorization: `Bot ${botToken}` }
+  const files = [];
+
+  // 1) 세션의 messageFiles 우선 포함
+  if (latestSession && latestSession.messageFiles && Array.isArray(latestSession.messageFiles)) {
+    latestSession.messageFiles.forEach((f) => {
+      files.push({ ...f, isCurrentMessage: true });
     });
-    if (response.ok) {
-      const msgs = await response.json();
-      const files = [];
-      for (const m of msgs) {
-        for (const att of (m.attachments || [])) {
-          const fmt = getFileFormat(att.filename || att.name);
-          if (fmt) {
-            files.push({
-              id: att.id,
-              name: att.filename || att.name,
-              url: att.url,
-              size: att.size,
-              format: fmt,
-              author: m.author ? m.author.username : '사용자'
-            });
+  }
+
+  // 2) 디스코드 채널 메시지 목록(30개) 조회
+  if (channelId && botToken) {
+    try {
+      const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=30`, {
+        headers: { Authorization: `Bot ${botToken}` }
+      });
+      if (response.ok) {
+        const msgs = await response.json();
+        for (const m of msgs) {
+          for (const att of (m.attachments || [])) {
+            const fmt = getFileFormat(att.filename || att.name);
+            if (fmt) {
+              if (!files.some((existing) => existing.id === att.id)) {
+                files.push({
+                  id: att.id,
+                  name: att.filename || att.name,
+                  url: att.url,
+                  size: att.size,
+                  format: fmt,
+                  author: m.author ? m.author.username : '사용자'
+                });
+              }
+            }
           }
         }
       }
-      return res.json({ files });
-    }
-  } catch (e) {}
-  return res.json({ files: [] });
+    } catch (e) {}
+  }
+  return res.json({ files });
 });
 
 // 최신 클릭된 파일 세션 메타데이터 조회 API (캐시 방지 헤더 포함)
