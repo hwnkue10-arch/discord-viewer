@@ -1677,6 +1677,8 @@ export default {
           });
         }
 
+        const currentMessageFiles = getAttachmentFiles(targetMessage.attachments);
+
         const normAttachment = {
           id: attachment.id,
           name: getAttachmentDisplayName(attachment),
@@ -1684,7 +1686,12 @@ export default {
           size: attachment.size
         };
 
-        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name, attachmentId: normAttachment.id };
+        const sessionData = {
+          cdnUrl: normAttachment.url,
+          fileName: normAttachment.name,
+          attachmentId: normAttachment.id,
+          messageFiles: currentMessageFiles
+        };
         const user = interaction.user || (interaction.member && interaction.member.user);
         const userId = user ? user.id : null;
         await saveSession(env, sessionData, channelId, userId, normAttachment.id);
@@ -1760,6 +1767,8 @@ export default {
           });
         }
 
+        const currentMessageFiles = getAttachmentFiles(resolvedMsg.attachments);
+
         const normAttachment = {
           id: attachment.id,
           name: getAttachmentDisplayName(attachment),
@@ -1767,7 +1776,12 @@ export default {
           size: attachment.size
         };
 
-        const sessionData = { cdnUrl: normAttachment.url, fileName: normAttachment.name, attachmentId: normAttachment.id };
+        const sessionData = {
+          cdnUrl: normAttachment.url,
+          fileName: normAttachment.name,
+          attachmentId: normAttachment.id,
+          messageFiles: currentMessageFiles
+        };
         const user = interaction.user || (interaction.member && interaction.member.user);
         const userId = user ? user.id : null;
         await saveSession(env, sessionData, interaction.channel_id, userId, normAttachment.id);
@@ -1846,11 +1860,12 @@ export default {
                   url: att.url,
                   size: att.size
                 };
+                const currentMessageFiles = getAttachmentFiles(msg.attachments);
                 const user = interaction.user || (interaction.member && interaction.member.user);
                 const userId = user ? user.id : null;
                 await saveSession(
                   env,
-                  { cdnUrl: normAtt.url, fileName: normAtt.name, attachmentId: normAtt.id },
+                  { cdnUrl: normAtt.url, fileName: normAtt.name, attachmentId: normAtt.id, messageFiles: currentMessageFiles },
                   channelId,
                   userId,
                   normAtt.id
@@ -1936,14 +1951,22 @@ export default {
     let targetUrl = url.searchParams.get('cdn_url') || url.searchParams.get('url');
     let fileTitle = url.searchParams.get('title') || 'Discord HTML Runner';
     const activityChannelId = url.searchParams.get('channel_id');
+    let sessionFiles = [];
 
-    // 1) Durable Object 실시간 강결합 세션에서 최신 선택된 파일 복원 (0ms 쿨타임)
-    if (!targetUrl) {
-      const sess = await getSession(env, activityChannelId, null);
-      if (sess) {
-        targetUrl = sess.cdnUrl;
-        fileTitle = sess.fileName;
-      }
+    // 1) Durable Object 실시간 강결합 세션에서 최신 선택된 파일 및 파일 목록 복원 (0ms 쿨타임)
+    if (activityChannelId) {
+      try {
+        const sess = await getSession(env, activityChannelId, null);
+        if (sess) {
+          if (!targetUrl) {
+            targetUrl = sess.cdnUrl;
+            fileTitle = sess.fileName;
+          }
+          if (sess.messageFiles && Array.isArray(sess.messageFiles)) {
+            sessionFiles = sess.messageFiles;
+          }
+        }
+      } catch (e) {}
     }
 
     // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 첨부파일 자동 확보!
@@ -1962,7 +1985,17 @@ export default {
             if (att) {
               targetUrl = att.url;
               fileTitle = getAttachmentDisplayName(att);
-              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle }, activityChannelId, null, att.id);
+              const allAtts = (msgWithFile.attachments || [])
+                .filter((a) => getFileFormat(a.filename || a.name))
+                .map((a) => ({
+                  id: a.id,
+                  name: getAttachmentDisplayName(a),
+                  url: a.url,
+                  size: a.size,
+                  format: getFileFormat(a.filename || a.name)
+                }));
+              sessionFiles = allAtts;
+              await saveSession(env, { cdnUrl: att.url, fileName: fileTitle, messageFiles: allAtts }, activityChannelId, null, att.id);
             }
           }
         }
