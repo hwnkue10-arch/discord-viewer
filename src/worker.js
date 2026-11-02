@@ -704,6 +704,19 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     return params.get('channel_id') || FALLBACK_CHAN_ID || '';
   }
 
+  function toAppUrl(path) {
+    if (!path) return '';
+    var base = '';
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        var m = window.location.pathname.match(/^(\/\.proxy)/);
+        if (m) base = m[1];
+      }
+    } catch (e) {}
+    if (path.indexOf('/') === 0) return base + path;
+    return base + '/' + path;
+  }
+
   function switchToFile(f) {
     if (!f || !f.url) return;
     var chanId = getChannelId();
@@ -713,19 +726,30 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     if (chanId) newUrl.searchParams.set('channel_id', chanId);
     newUrl.searchParams.set('_t', Date.now());
 
-    fetch('/api/active-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channel_id: chanId,
-        cdnUrl: f.url,
-        fileName: f.name,
-        attachmentId: f.id
-      }),
-      keepalive: true
-    }).finally(function() {
-      window.location.href = newUrl.toString();
-    });
+    // 즉시 전환 상태 표시 (UI 반응성 극대화)
+    var curTitleEl = document.getElementById('discord-helper-cur-title');
+    if (curTitleEl) curTitleEl.textContent = '⏳ 전환 중: ' + f.name;
+    if (switchList) {
+      switchList.innerHTML = '<div style="color:#38bdf8;text-align:center;padding:24px 10px;font-weight:600;"><div style="font-size:20px;margin-bottom:8px;">⏳</div><div>문서 불러오는 중...</div><div style="font-size:11px;color:#94a3b8;margin-top:6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto;margin-right:auto;">' + f.name + '</div></div>';
+    }
+
+    try {
+      fetch(toAppUrl('/api/active-session'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel_id: chanId,
+          cdnUrl: f.url,
+          fileName: f.name,
+          attachmentId: f.id,
+          messageFiles: allLoadedFiles
+        }),
+        keepalive: true
+      }).catch(function() {});
+    } catch (e) {}
+
+    // 대기하지 않고 즉시 브라우저 이동
+    window.location.href = newUrl.toString();
   }
 
   function renderFileList(files) {
@@ -734,7 +758,6 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       return;
     }
     allLoadedFiles = files;
-    updateNavigationUI();
 
     var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
     var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
@@ -786,7 +809,7 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       return;
     }
 
-    fetch('/api/channel-files?channel_id=' + encodeURIComponent(chanId))
+    fetch(toAppUrl('/api/channel-files?channel_id=' + encodeURIComponent(chanId)))
       .then(function(r) { return r.json(); })
       .then(function(data) {
         var remoteFiles = data.files || [];
@@ -846,10 +869,15 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
 
   // 실시간 액티비티 세션 동기화
   var isRedirecting = false;
+  var pageStartTime = Date.now();
   function checkActiveSession() {
     if (isRedirecting) return;
+    // 페이지 로드 직후 3초간은 이전 세션 불일치로 인한 오작동 리다이렉트 방지
+    if (Date.now() - pageStartTime < 3000) return;
     var chanId = getChannelId();
-    fetch('/api/active-session?channel_id=' + encodeURIComponent(chanId) + '&_t=' + Date.now(), { cache: 'no-store' })
+    if (!chanId) return;
+
+    fetch(toAppUrl('/api/active-session?channel_id=' + encodeURIComponent(chanId) + '&_t=' + Date.now()), { cache: 'no-store' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         var sess = data && data.session;
@@ -1409,7 +1437,12 @@ export default {
           if (body.cdnUrl) {
             await saveSession(
               env,
-              { cdnUrl: body.cdnUrl, fileName: body.fileName || 'Document', updatedAt: Date.now() },
+              {
+                cdnUrl: body.cdnUrl,
+                fileName: body.fileName || 'Document',
+                messageFiles: body.messageFiles || [],
+                updatedAt: Date.now()
+              },
               channelId,
               null,
               body.attachmentId || null
@@ -1847,41 +1880,64 @@ export default {
           const channelId = interaction.channel_id;
 
           try {
-            const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${msgId}`, {
-              headers: { Authorization: `Bot ${botToken}` }
-            });
-            if (res.ok) {
-              const msg = await res.json();
-              const att = (msg.attachments || []).find((a) => a.id === attId);
-              if (att) {
-                const normAtt = {
-                  id: att.id,
-                  name: getAttachmentDisplayName(att),
-                  url: att.url,
-                  size: att.size
-                };
-                const currentMessageFiles = getAttachmentFiles(msg.attachments);
-                const user = interaction.user || (interaction.member && interaction.member.user);
-                const userId = user ? user.id : null;
-                await saveSession(
-                  env,
-                  { cdnUrl: normAtt.url, fileName: normAtt.name, attachmentId: normAtt.id, messageFiles: currentMessageFiles },
-                  channelId,
-                  userId,
-                  normAtt.id
-                );
+            let currentMessageFiles = [];
+            let normAtt = null;
+            let targetMsg = null;
 
-                const newPayload = buildInteractionLaunchPayload(
-                  normAtt,
-                  msg.id,
-                  msg.author ? msg.author.username : '사용자',
-                  workerOrigin
-                );
-
-                // UPDATE_MESSAGE (type: 7) 로 전환
-                newPayload.type = 7;
-                return jsonResponse(newPayload);
+            if (msgId && msgId !== 'cmd' && botToken) {
+              const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${msgId}`, {
+                headers: { Authorization: `Bot ${botToken}` },
+                signal: AbortSignal.timeout(2500)
+              });
+              if (res.ok) {
+                targetMsg = await res.json();
+                const att = (targetMsg.attachments || []).find((a) => a.id === attId);
+                if (att) {
+                  normAtt = {
+                    id: att.id,
+                    name: getAttachmentDisplayName(att),
+                    url: att.url,
+                    size: att.size
+                  };
+                  currentMessageFiles = getAttachmentFiles(targetMsg.attachments);
+                }
               }
+            }
+
+            // msgId가 'cmd'이거나 메시지 조회가 실패한 경우 세션 스토어에서 복원
+            if (!normAtt && channelId) {
+              const sess = await getSession(env, channelId, null);
+              if (sess && sess.messageFiles && Array.isArray(sess.messageFiles)) {
+                currentMessageFiles = sess.messageFiles;
+                const found = sess.messageFiles.find((f) => f.id === attId);
+                if (found) {
+                  normAtt = found;
+                }
+              }
+            }
+
+            if (normAtt) {
+              const user = interaction.user || (interaction.member && interaction.member.user);
+              const userId = user ? user.id : null;
+              await saveSession(
+                env,
+                { cdnUrl: normAtt.url, fileName: normAtt.name, attachmentId: normAtt.id, messageFiles: currentMessageFiles },
+                channelId,
+                userId,
+                normAtt.id
+              );
+
+              const newPayload = buildInteractionLaunchPayload(
+                normAtt,
+                msgId || 'cmd',
+                targetMsg && targetMsg.author ? targetMsg.author.username : '사용자',
+                workerOrigin,
+                { availableFiles: currentMessageFiles, channelId }
+              );
+
+              // UPDATE_MESSAGE (type: 7) 로 전환
+              newPayload.type = 7;
+              return jsonResponse(newPayload);
             }
           } catch (e) {}
         }
@@ -1969,11 +2025,22 @@ export default {
       } catch (e) {}
     }
 
+    // targetUrl이 직접 주어진 경우(파일 전환 등) 세션에 비동기 저장하여 상태 일관성 보장
+    if (targetUrl && activityChannelId && ctx && typeof ctx.waitUntil === 'function') {
+      const currentSessionData = {
+        cdnUrl: targetUrl,
+        fileName: fileTitle,
+        messageFiles: sessionFiles && sessionFiles.length > 0 ? sessionFiles : []
+      };
+      ctx.waitUntil(saveSession(env, currentSessionData, activityChannelId, null, null));
+    }
+
     // 2) 세션에도 없다면, 디스코드 채널 API를 실시간 조회하여 최신 첨부파일 자동 확보!
     if (!targetUrl && activityChannelId && env.DISCORD_BOT_TOKEN) {
       try {
         const res = await fetch(`https://discord.com/api/v10/channels/${activityChannelId}/messages?limit=25`, {
-          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+          signal: AbortSignal.timeout(2500)
         });
         if (res.ok) {
           const msgs = await res.json();
@@ -2004,11 +2071,19 @@ export default {
       }
     }
 
-    // 3) 만약 fileTitle에 디스코드 특유의 언더바 치환(____)이 포함되어 있거나 기본값인 경우, 채널 메시지에서 원본 제목(att.title)을 찾아 복원 시도
+    // 3) 만약 fileTitle에 디스코드 특유의 언더바 치환(____)이 포함되어 있거나 기본값인 경우, 원본 제목 복원 시도
+    if (sessionFiles && sessionFiles.length > 0) {
+      const match = sessionFiles.find((f) => targetUrl && (f.url === targetUrl || targetUrl.includes(f.id)));
+      if (match && match.name && !match.name.includes('___')) {
+        fileTitle = match.name;
+      }
+    }
+
     if (activityChannelId && env.DISCORD_BOT_TOKEN && (fileTitle.includes('___') || fileTitle === 'Discord HTML Runner')) {
       try {
         const res = await fetch(`https://discord.com/api/v10/channels/${activityChannelId}/messages?limit=25`, {
-          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+          signal: AbortSignal.timeout(2000)
         });
         if (res.ok) {
           const msgs = await res.json();

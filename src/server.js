@@ -619,11 +619,16 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     if (chanId) newUrl.searchParams.set('channel_id', chanId);
     newUrl.searchParams.set('_t', Date.now());
 
-    fetch('/api/latest-session')
-      .catch(function() {})
-      .finally(function() {
-        window.location.href = newUrl.toString();
-      });
+    var curTitleEl = document.getElementById('discord-helper-cur-title');
+    if (curTitleEl) curTitleEl.textContent = '⏳ 전환 중: ' + f.name;
+    if (switchList) {
+      switchList.innerHTML = '<div style="color:#38bdf8;text-align:center;padding:24px 10px;font-weight:600;"><div style="font-size:20px;margin-bottom:8px;">⏳</div><div>문서 불러오는 중...</div><div style="font-size:11px;color:#94a3b8;margin-top:6px;">' + f.name + '</div></div>';
+    }
+
+    try {
+      fetch('/api/latest-session', { keepalive: true }).catch(function() {});
+    } catch(e) {}
+    window.location.href = newUrl.toString();
   }
 
   function renderFileList(files) {
@@ -632,7 +637,6 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
       return;
     }
     allLoadedFiles = files;
-    updateNavigationUI();
 
     var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
     var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
