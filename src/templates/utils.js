@@ -6,7 +6,8 @@ const SUPPORTED_FORMATS = {
   html: ['.html', '.htm'],
   pdf:  ['.pdf'],
   md:   ['.md', '.markdown'],
-  pptx: ['.pptx']
+  pptx: ['.pptx'],
+  hwp:  ['.hwp', '.hwpx']
 };
 
 function getFileFormat(filename) {

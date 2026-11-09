@@ -44,7 +44,7 @@ async function registerCommands() {
     {
       name: 'view',
       type: 1, // CHAT_INPUT (슬래시 커맨드)
-      description: '채팅방의 문서(HTML, PDF, MD, PPTX)를 찾아 즉시 엽니다.',
+      description: '채팅방의 문서(HTML, PDF, MD, PPTX, HWP)를 찾아 즉시 엽니다.',
       integration_types: [0, 1], // Guild Install + User Install
       contexts: [0, 1, 2],       // 서버, 봇 DM, 개인/그룹 DM
       options: [

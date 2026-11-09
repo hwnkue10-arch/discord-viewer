@@ -6,7 +6,8 @@ const {
   getFileFormat,
   renderPdfViewer,
   renderMarkdownViewer,
-  renderPptxViewer
+  renderPptxViewer,
+  renderHwpViewer
 } = require('./templates');
 
 const app = express();
@@ -118,6 +119,11 @@ const ALLOWED_EXACT_MIMES = new Set([
   'application/x-zip-compressed',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.ms-powerpoint',
+  'application/x-hwp',
+  'application/haansofthwp',
+  'application/vnd.hancom.hwp',
+  'application/haansofthwpx',
+  'application/vnd.hancom.hwpx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/font-woff',
@@ -152,6 +158,8 @@ function resolveSafeContentType(rawContentType, assetUrl) {
   else if (pathname.endsWith('.wasm')) ct = 'application/wasm';
   else if (pathname.endsWith('.pdf')) ct = 'application/pdf';
   else if (pathname.endsWith('.pptx')) ct = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  else if (pathname.endsWith('.hwp')) ct = 'application/x-hwp';
+  else if (pathname.endsWith('.hwpx')) ct = 'application/haansofthwpx';
   else if (pathname.endsWith('.md') || pathname.endsWith('.markdown')) ct = 'text/markdown; charset=utf-8';
   else if (pathname.endsWith('.bcmap') || pathname.endsWith('.pfb')) ct = 'application/octet-stream';
 
@@ -161,7 +169,7 @@ function resolveSafeContentType(rawContentType, assetUrl) {
 
   return {
     allowed: isPrefixAllowed || isExactAllowed,
-    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm|pdf|pptx|md|markdown|bcmap|pfb)$/i) ? rawContentType : ct
+    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm|pdf|pptx|hwp|hwpx|md|markdown|bcmap|pfb)$/i) ? rawContentType : ct
   };
 }
 
@@ -697,8 +705,8 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     }
     allLoadedFiles = files;
 
-    var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
-    var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
+    var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝', hwp: '📝' };
+    var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981', hwp: '#2563eb' };
     var html = '';
 
     files.forEach(function(f, idx) {
@@ -996,6 +1004,14 @@ async function handleRenderRequest(req, res) {
 
     if (format === 'pptx') {
       const viewerHtml = renderPptxViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
+      const sessionFiles = (latestSession && latestSession.messageFiles) || [];
+      const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(finalHtml);
+    }
+
+    if (format === 'hwp') {
+      const viewerHtml = renderHwpViewer(fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID);
       const sessionFiles = (latestSession && latestSession.messageFiles) || [];
       const finalHtml = renderHtmlForDiscordActivity(viewerHtml, fileTitle, serverOrigin, targetUrl, process.env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');

@@ -21,12 +21,13 @@ const client = new Client({
   ]
 });
 
-// 지원 포맷 정의 (.html, .pdf, .md, .pptx)
+// 지원 포맷 정의 (.html, .pdf, .md, .pptx, .hwp, .hwpx)
 const SUPPORTED_FORMATS = {
   html: ['.html', '.htm'],
   pdf:  ['.pdf'],
   md:   ['.md', '.markdown'],
-  pptx: ['.pptx']
+  pptx: ['.pptx'],
+  hwp:  ['.hwp', '.hwpx']
 };
 
 function getFileFormat(filename) {
@@ -42,16 +43,17 @@ const FORMAT_META = {
   html: { icon: '📄', label: 'HTML 웹페이지', color: 0x38bdf8 },
   pdf:  { icon: '📑', label: 'PDF 문서', color: 0xf43f5e },
   md:   { icon: '📝', label: 'Markdown 문서', color: 0x10b981 },
-  pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 }
+  pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 },
+  hwp:  { icon: '📝', label: '한글(HWP) 문서', color: 0x2563eb }
 };
 
 // 첨부파일 메모리 캐시 (슬래시 커맨드 및 우클릭 실행 시 즉각적인 CDN 링크 조회 보장)
 const attachmentCache = new Map();
 
-// 1. 신규 통합 슬래시 명령어 (/view) 빌더: HTML, PDF, MD, PPTX 전 포맷 자동 감지!
+// 1. 신규 통합 슬래시 명령어 (/view) 빌더: HTML, PDF, MD, PPTX, HWP 전 포맷 자동 감지!
 const viewSlashCommand = new SlashCommandBuilder()
   .setName('view')
-  .setDescription('채팅방에 업로드된 문서(HTML, PDF, MD, PPTX)를 찾아 즉시 엽니다.')
+  .setDescription('채팅방에 업로드된 문서(HTML, PDF, MD, PPTX, HWP)를 찾아 즉시 엽니다.')
   .setIntegrationTypes([0, 1]) // 0: Guild Install, 1: User Install
   .setContexts([0, 1, 2])     // 서버, 봇 DM, 개인/그룹 DM
   .addStringOption((option) =>
@@ -174,10 +176,10 @@ client.once('clientReady', async () => {
     console.warn('⚠️ 명령어 확인 중 안내:', cmdErr.message);
   }
 
-  console.log('📂 HTML, PDF, MD, PPTX 파일 자동 감지 및 /view 명령어가 모두 준비되었습니다.');
+  console.log('📂 HTML, PDF, MD, PPTX, HWP 파일 자동 감지 및 /view 명령어가 모두 준비되었습니다.');
 });
 
-// [1단계] 사용자가 채팅창에 지원 파일(.html, .pdf, .md, .pptx)을 올리면 감지하여 실행 버튼 생성
+// [1단계] 사용자가 채팅창에 지원 파일(.html, .pdf, .md, .pptx, .hwp, .hwpx)을 올리면 감지하여 실행 버튼 생성
 client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
@@ -223,7 +225,7 @@ client.on('interactionCreate', async (interaction) => {
           },
           {
             name: '3️⃣ 지원 파일 포맷',
-            value: '• `📄 HTML`: Zero-Eval 네이티브 렌더러 (웹앱, 대시보드)\n• `📑 PDF`: Mozilla PDF.js v3 (목차 트리, 텍스트 마이닝, 페이지 점프)\n• `📝 Markdown`: Marked + Highlight.js + Mermaid 다이어그램\n• `📊 PowerPoint`: OOXML 네이티브 엔진 (.pptx 1:1 벡터 렌더링, 목차 카드)'
+            value: '• `📄 HTML`: Zero-Eval 네이티브 렌더러 (웹앱, 대시보드)\n• `📑 PDF`: Mozilla PDF.js v3 (목차 트리, 텍스트 마이닝, 페이지 점프)\n• `📝 Markdown`: Marked + Highlight.js + Mermaid 다이어그램\n• `📊 PowerPoint`: OOXML 네이티브 엔진 (.pptx 1:1 벡터 렌더링, 목차 카드)\n• `📝 한글(HWP)`: RHWP 고성능 벡터 렌더러 (.hwp, .hwpx A4 용지 뷰어)'
           },
           {
             name: '4️⃣ 뷰어 내부 조작 팁',
@@ -272,7 +274,7 @@ client.on('interactionCreate', async (interaction) => {
           return await interaction.editReply({
             content: [
               '⚠️ **현재 채널의 최근 50개 메시지 중에서 지원되는 문서 파일을 찾지 못했습니다.**',
-              '• 지원 포맷: `.html`, `.pdf`, `.md`, `.pptx`',
+              '• 지원 포맷: `.html`, `.pdf`, `.md`, `.pptx`, `.hwp`, `.hwpx`',
               '• 채팅방에 문서를 먼저 업로드한 뒤 `/view`를 입력해 보세요.',
               '• 또는 파일이 있는 메시지를 **[우클릭 → 앱 → 파일 바로보기]**로 즉시 열 수 있습니다.'
             ].join('\n')
@@ -315,7 +317,7 @@ client.on('interactionCreate', async (interaction) => {
       );
       if (!currentFiles.length) {
         return await interaction.editReply({
-          content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx)이 없습니다.'
+          content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx, .hwp, .hwpx)이 없습니다.'
         });
       }
 
@@ -406,7 +408,7 @@ client.on('interactionCreate', async (interaction) => {
       );
       if (!validFiles || validFiles.size === 0) {
         return await interaction.reply({
-          content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx)이 없습니다.',
+          content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx, .hwp, .hwpx)이 없습니다.',
           flags: MessageFlags.Ephemeral
         });
       }

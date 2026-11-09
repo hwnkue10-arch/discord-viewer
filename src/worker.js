@@ -2,7 +2,7 @@
  * Cloudflare Workers 기반 100% 무(無)서버 Discord In-App Activity & Multi-Format Viewer
  * - 상시 실행 서버 0개 (비용 0원, 컴퓨터 꺼도 24시간 작동)
  * - 디스코드 Interactions HTTP Webhook 수신 (Ed25519 서명 검증)
- * - HTML, PDF, Markdown, PPTX 실시간 에지 렌더러
+ * - HTML, PDF, Markdown, PPTX, HWP 실시간 에지 렌더러
  */
 
 import {
@@ -10,14 +10,16 @@ import {
   getFileFormat,
   renderPdfViewer,
   renderMarkdownViewer,
-  renderPptxViewer
+  renderPptxViewer,
+  renderHwpViewer
 } from './templates/index.js';
 
 const FORMAT_META = {
   html: { icon: '📄', label: 'HTML 웹페이지', color: 0x38bdf8 },
   pdf:  { icon: '📑', label: 'PDF 문서', color: 0xf43f5e },
   md:   { icon: '📝', label: 'Markdown 문서', color: 0x10b981 },
-  pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 }
+  pptx: { icon: '📊', label: 'PowerPoint 슬라이드', color: 0xf97316 },
+  hwp:  { icon: '📝', label: '한글(HWP) 문서', color: 0x2563eb }
 };
 
 // 이용약관 및 개인정보 처리방침 공통 HTML 렌더러
@@ -212,6 +214,11 @@ const ALLOWED_EXACT_MIMES = new Set([
   'application/x-zip-compressed',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.ms-powerpoint',
+  'application/x-hwp',
+  'application/haansofthwp',
+  'application/vnd.hancom.hwp',
+  'application/haansofthwpx',
+  'application/vnd.hancom.hwpx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/font-woff',
@@ -246,6 +253,8 @@ function resolveSafeContentType(rawContentType, assetUrl) {
   else if (pathname.endsWith('.wasm')) ct = 'application/wasm';
   else if (pathname.endsWith('.pdf')) ct = 'application/pdf';
   else if (pathname.endsWith('.pptx')) ct = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  else if (pathname.endsWith('.hwp')) ct = 'application/x-hwp';
+  else if (pathname.endsWith('.hwpx')) ct = 'application/haansofthwpx';
   else if (pathname.endsWith('.md') || pathname.endsWith('.markdown')) ct = 'text/markdown; charset=utf-8';
   else if (pathname.endsWith('.bcmap') || pathname.endsWith('.pfb')) ct = 'application/octet-stream';
 
@@ -255,7 +264,7 @@ function resolveSafeContentType(rawContentType, assetUrl) {
 
   return {
     allowed: isPrefixAllowed || isExactAllowed,
-    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm|pdf|pptx|md|markdown|bcmap|pfb)$/i) ? rawContentType : ct
+    contentType: rawContentType && !pathname.match(/\.(woff2?|ttf|otf|css|m?js|svg|wasm|pdf|pptx|hwp|hwpx|md|markdown|bcmap|pfb)$/i) ? rawContentType : ct
   };
 }
 
@@ -822,8 +831,8 @@ function buildHelperBar(fileTitle, directUrl, currentCdnUrl, options = {}) {
     }
     allLoadedFiles = files;
 
-    var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝' };
-    var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981' };
+    var icons = { html: '📄', pdf: '📑', pptx: '📊', md: '📝', hwp: '📝' };
+    var colors = { html: '#38bdf8', pdf: '#f43f5e', pptx: '#f97316', md: '#10b981', hwp: '#2563eb' };
     var html = '';
 
     files.forEach(function(f, idx) {
@@ -1758,7 +1767,7 @@ export default {
                   },
                   {
                     name: '3️⃣ 지원 파일 포맷',
-                    value: '• `📄 HTML`: Zero-Eval 네이티브 렌더러 (웹앱, 대시보드)\n• `📑 PDF`: Mozilla PDF.js v3 (목차 트리, 텍스트 마이닝, 페이지 점프)\n• `📝 Markdown`: Marked + Highlight.js + Mermaid 다이어그램\n• `📊 PowerPoint`: OOXML 네이티브 엔진 (.pptx 1:1 벡터 렌더링, 목차 카드)'
+                    value: '• `📄 HTML`: Zero-Eval 네이티브 렌더러 (웹앱, 대시보드)\n• `📑 PDF`: Mozilla PDF.js v3 (목차 트리, 텍스트 마이닝, 페이지 점프)\n• `📝 Markdown`: Marked + Highlight.js + Mermaid 다이어그램\n• `📊 PowerPoint`: OOXML 네이티브 엔진 (.pptx 1:1 벡터 렌더링, 목차 카드)\n• `📝 한글(HWP)`: RHWP 고성능 벡터 렌더러 (.hwp, .hwpx A4 용지 뷰어)'
                   },
                   {
                     name: '4️⃣ 뷰어 내부 조작 팁',
@@ -1814,7 +1823,7 @@ export default {
               type: 4,
               data: {
                 flags: 64,
-                content: '⚠️ **현재 채널의 최근 50개 메시지 중에서 지원되는 문서(.html, .pdf, .md, .pptx)를 찾지 못했습니다.**\n채팅방에 문서를 업로드한 후 다시 시도하거나, 메시지 링크를 입력해 주세요.'
+                content: '⚠️ **현재 채널의 최근 50개 메시지 중에서 지원되는 문서(.html, .pdf, .md, .pptx, .hwp, .hwpx)를 찾지 못했습니다.**\n채팅방에 문서를 업로드한 후 다시 시도하거나, 메시지 링크를 입력해 주세요.'
               }
             });
           }
@@ -1829,7 +1838,7 @@ export default {
         if (!attachment) {
           return jsonResponse({
             type: 4,
-            data: { flags: 64, content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx)이 없습니다.' }
+            data: { flags: 64, content: '⚠️ 선택된 메시지에 지원되는 문서 첨부파일(.html, .pdf, .md, .pptx, .hwp, .hwpx)이 없습니다.' }
           });
         }
 
@@ -1919,7 +1928,7 @@ export default {
         if (!attachment) {
           return jsonResponse({
             type: 4,
-            data: { flags: 64, content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx)이 없습니다.' }
+            data: { flags: 64, content: '⚠️ 선택한 메시지에 첨부된 지원 문서 파일(.html, .pdf, .md, .pptx, .hwp, .hwpx)이 없습니다.' }
           });
         }
 
@@ -2074,7 +2083,7 @@ export default {
       const termsSections = `
         <p>Doc Viewer(이하 "서비스")를 이용해 주셔서 감사합니다. 본 약관은 Discord 플랫폼 내에서 제공되는 Doc Viewer 애플리케이션 및 인앱 액티비티의 이용 조건을 규정합니다.</p>
         <h2>제1조 (목적)</h2>
-        <p>본 약관은 Doc Viewer가 제공하는 문서 뷰어 서비스(HTML, PDF, Markdown, PPTX 열람 기능)를 이용함에 있어 서비스 제공자와 이용자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+        <p>본 약관은 Doc Viewer가 제공하는 문서 뷰어 서비스(HTML, PDF, Markdown, PPTX, HWP 열람 기능)를 이용함에 있어 서비스 제공자와 이용자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
         <h2>제2조 (서비스의 제공)</h2>
         <p>1. 본 서비스는 디스코드(Discord) 클라이언트 내에서 사용자가 공유한 문서를 다운로드 없이 즉시 열람할 수 있는 인앱 액티비티 및 슬래시 명령어를 제공합니다.<br>
         2. 서비스는 연중무휴, 1일 24시간 제공을 원칙으로 하되, 디스코드 API 장애 또는 시스템 유지보수가 필요한 경우 일시 중단될 수 있습니다.</p>
@@ -2283,6 +2292,11 @@ export default {
 
       if (format === 'pptx') {
         const finalHtml = renderPptxViewer(fileTitle, workerOrigin, targetUrl, env.DISCORD_CLIENT_ID);
+        return renderHtmlForDiscordActivity(finalHtml, fileTitle, workerOrigin, targetUrl, env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
+      }
+
+      if (format === 'hwp') {
+        const finalHtml = renderHwpViewer(fileTitle, workerOrigin, targetUrl, env.DISCORD_CLIENT_ID);
         return renderHtmlForDiscordActivity(finalHtml, fileTitle, workerOrigin, targetUrl, env.DISCORD_CLIENT_ID, { channelId: activityChannelId, files: sessionFiles });
       }
 
