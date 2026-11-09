@@ -431,6 +431,7 @@ function buildRuntimeShimScript(discordClientId) {
   function wrap(u) {
     if (typeof u !== 'string') return u;
     if (u.startsWith('/api/') || u.startsWith('data:') || u.startsWith('blob:')) return u;
+    if (u.indexOf('cdn.jsdelivr.net') !== -1 || u.indexOf('cdnjs.cloudflare.com') !== -1) return u;
     var a = ext(u);
     if (!a) return u;
     try {
