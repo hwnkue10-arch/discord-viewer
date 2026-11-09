@@ -507,6 +507,22 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
     }
 
+    // WASM 폰트 측정 콜백 (줄바꿈/너비 계산용)
+    var textCanvas = null;
+    var textCtx = null;
+    var cachedFont = '';
+    globalThis.measureTextWidth = function(font, text) {
+      if (!textCtx) {
+        textCanvas = document.createElement('canvas');
+        textCtx = textCanvas.getContext('2d');
+      }
+      if (font !== cachedFont) {
+        textCtx.font = font;
+        cachedFont = font;
+      }
+      return textCtx.measureText(text).width;
+    };
+
     // 다운로드 트리거
     function triggerDownload() {
       var dlUrl = serverOrigin + '/api/download?url=' + encodeURIComponent(targetUrl) + '&name=' + encodeURIComponent(fileTitle || '문서.hwp');
@@ -733,7 +749,12 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       try {
         updateStatus('⚡ 한글 벡터 렌더링 엔진 로드 중...');
         var wasmUrl = toProxyUrlClient('https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp_bg.wasm');
-        await init({ module_or_path: wasmUrl });
+        try {
+          await init({ module_or_path: wasmUrl });
+        } catch (initErr) {
+          console.warn('WASM proxy load failed, attempting direct load:', initErr);
+          await init({ module_or_path: 'https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp_bg.wasm' });
+        }
 
         updateStatus('📥 문서 파일 다운로드 중...');
         var proxyUrl = toProxyUrlClient(targetUrl);
