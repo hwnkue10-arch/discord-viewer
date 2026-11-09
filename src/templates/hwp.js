@@ -1,6 +1,6 @@
 const { escapeHtml, safeJsonForScript } = require('./utils');
 
-// 4. 한글 문서 (HWP / HWPX) 초고속 무경량 뷰어 (Pure JS 엔진 + A4 규격 레이아웃)
+// 4. 한글 문서 (HWP / HWPX) 뷰어 (RHWP Rust + WebAssembly 고성능 벡터 렌더링 엔진)
 function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
   return `<!DOCTYPE html>
 <html lang="ko">
@@ -260,68 +260,21 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       gap: 24px;
       width: 100%;
     }
-
-    /* A4 규격 용지 스타일 */
     .hwp-page-sheet {
       position: relative;
       background: #ffffff;
-      color: #1e293b;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 10px rgba(0, 0, 0, 0.25);
       border-radius: 2px;
       transition: width 0.18s ease-out;
       width: 820px;
-      min-height: 1120px;
       max-width: 100%;
+      overflow: hidden;
       box-sizing: border-box;
-      padding: 64px 72px 56px;
-      font-family: 'Noto Serif KR', 'Nanum Myeongjo', 'Batang', serif;
-      font-size: 14.5px;
-      line-height: 1.8;
-      word-break: keep-all;
-      overflow-wrap: break-word;
     }
-    .hwp-page-header {
-      font-size: 12px;
-      color: #64748b;
-      border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 8px;
-      margin-bottom: 24px;
-      font-family: 'Noto Sans KR', sans-serif;
-    }
-    .hwp-page-footer {
-      font-size: 12px;
-      color: #64748b;
-      border-top: 1px solid #e2e8f0;
-      padding-top: 8px;
-      margin-top: 24px;
-      font-family: 'Noto Sans KR', sans-serif;
-    }
-    .hwp-para {
-      margin: 0 0 12px;
-      white-space: pre-wrap;
-    }
-    .hwp-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0;
-      background: #ffffff;
-      font-family: 'Noto Sans KR', sans-serif;
-    }
-    .hwp-table td {
-      border: 1px solid #94a3b8;
-      padding: 7px 10px;
-      vertical-align: middle;
-      font-size: 13px;
-      line-height: 1.5;
-      color: #1e293b;
-      word-break: keep-all;
-    }
-    .hwp-image {
+    .hwp-page-sheet svg {
       display: block;
-      max-width: 100%;
+      width: 100%;
       height: auto;
-      margin: 16px auto;
-      border-radius: 4px;
     }
     .hwp-page-num-badge {
       position: absolute;
@@ -336,7 +289,6 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       pointer-events: none;
       font-weight: 600;
       user-select: none;
-      font-family: 'Noto Sans KR', sans-serif;
     }
 
     /* 로딩 인디케이터 */
@@ -403,7 +355,6 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       line-height: 1.6;
       margin-bottom: 20px;
       word-break: keep-all;
-      white-space: pre-wrap;
     }
     .hwp-btn-download-primary {
       background: #0284c7;
@@ -443,9 +394,9 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
 
       <span style="color:#334155;margin:0 2px;">|</span>
 
-      <!-- 줌 및 맞춤 컨트롤 (퍼센트 누르면 100% 복귀, 단일 맞춤 토글 버튼) -->
+      <!-- 줌 및 맞춤 컨트롤 (퍼센트 누르면 100%, 단일 맞춤 토글 버튼으로 폭/쪽 교대 전환) -->
       <button class="hwp-btn" id="hwp-zoom-out" title="축소 (-)">➖</button>
-      <button class="hwp-btn active" id="hwp-zoom-pct" title="클릭 시 100% 원본으로 복귀">100%</button>
+      <button class="hwp-btn active" id="hwp-zoom-pct" title="현재 배율: 100% • 클릭 시 100% 원본으로 복귀">100%</button>
       <button class="hwp-btn" id="hwp-zoom-in" title="확대 (+)">➕</button>
       <button class="hwp-btn" id="hwp-fit-toggle" title="클릭 시 폭 맞춤 ↔ 쪽 맞춤 전환">⇲ 폭 맞춤</button>
     </div>
@@ -472,7 +423,7 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       <div id="hwp-loading-overlay">
         <div class="hwp-spinner"></div>
         <div class="hwp-loading-title">한글 문서 렌더링 중</div>
-        <div class="hwp-loading-desc" id="hwp-loading-desc">문서를 준비하는 중...</div>
+        <div class="hwp-loading-desc" id="hwp-loading-desc">초기화 중...</div>
       </div>
 
       <!-- 에러 표시 박스 -->
@@ -491,6 +442,8 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
   </div>
 
   <script type="module">
+    import init, { HwpDocument } from 'https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp.js';
+
     var fileTitle = ${safeJsonForScript(fileTitle)};
     var targetUrl = ${safeJsonForScript(targetUrl)};
     var serverOrigin = ${safeJsonForScript(serverOrigin)};
@@ -540,6 +493,16 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       }
     }
 
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function updateStatus(text) {
       if (loadingDesc) loadingDesc.textContent = text;
     }
@@ -552,6 +515,22 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         if (msg) errorMsg.textContent = msg;
       }
     }
+
+    // WASM 폰트 측정 콜백 (줄바꿈/너비 계산용)
+    var textCanvas = null;
+    var textCtx = null;
+    var cachedFont = '';
+    globalThis.measureTextWidth = function(font, text) {
+      if (!textCtx) {
+        textCanvas = document.createElement('canvas');
+        textCtx = textCanvas.getContext('2d');
+      }
+      if (font !== cachedFont) {
+        textCtx.font = font;
+        cachedFont = font;
+      }
+      return textCtx.measureText(text).width;
+    };
 
     // 다운로드 트리거
     function triggerDownload() {
@@ -623,6 +602,7 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     // 3. 쪽 맞춤 (Fit Page / Height)
     function fitToPage() {
       fitMode = 'page';
+      // A4 용지 규격 비율: 높이 = 너비 * 1.414
       var availHeight = workspace.clientHeight - 64;
       if (availHeight < 280) availHeight = 280;
       var targetWidth = Math.round(availHeight / 1.414);
@@ -773,31 +753,13 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     });
 
     // -------------------------------------------------------------
-    // 메인 로딩 파이프라인 (초경량 Pure-JS 엔진)
+    // 메인 로딩 파이프라인 (RHWP 고해상도 벡터 엔진)
     // -------------------------------------------------------------
     async function loadDocument() {
-      // 무한 로딩 원천 차단 타이머 (10초 타임아웃)
-      var watchdogTimer = setTimeout(function() {
-        showError('문서 로딩 대기 시간이 초과되었습니다. 원본 파일을 다운로드해 주세요.');
-      }, 10000);
-
       try {
-        updateStatus('⚡ 한글 문서 디코더 준비 중...');
-        var parseHangulDocument = null;
-
-        // 경량(150KB) 순수 자바스크립트 파서 로드 (WASM 12MB 다운로드 및 무한 로딩 원천 제거)
-        try {
-          var mod = await import('https://cdn.jsdelivr.net/npm/@file-viewer/renderer-hangul@3.3.3/dist/hangul.parser.js');
-          parseHangulDocument = mod.parseHangulDocument;
-        } catch (cdnErr) {
-          console.warn('jsdelivr 실패, unpkg 폴백 시도:', cdnErr);
-          var mod2 = await import('https://unpkg.com/@file-viewer/renderer-hangul@3.3.3/dist/hangul.parser.js');
-          parseHangulDocument = mod2.parseHangulDocument;
-        }
-
-        if (!parseHangulDocument) {
-          throw new Error('한글 파서 모듈을 로드하지 못했습니다.');
-        }
+        updateStatus('⚡ 한글 벡터 렌더링 엔진 로드 중...');
+        var wasmUrl = 'https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp_bg.wasm';
+        await init({ module_or_path: wasmUrl });
 
         updateStatus('📥 문서 파일 다운로드 중...');
         var proxyUrl = toProxyUrlClient(targetUrl);
@@ -805,176 +767,75 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
         if (!res.ok) throw new Error('파일 다운로드 실패 (상태 코드: ' + res.status + ')');
 
         var arrayBuf = await res.arrayBuffer();
+        var buffer = new Uint8Array(arrayBuf);
 
-        updateStatus('📄 문서 본문 및 표 분석 중...');
-        var doc = await parseHangulDocument(arrayBuf, 'hwp');
+        updateStatus('📄 한글 문서 구조 분석 및 파싱 중...');
+        var doc = new HwpDocument(buffer);
+        totalPages = doc.pageCount();
 
-        if (!doc || !doc.sections || doc.sections.length === 0) {
-          throw new Error('문서에서 본문 섹션을 찾을 수 없습니다.');
+        if (!totalPages || totalPages === 0) {
+          throw new Error('문서에 표시할 수 있는 페이지가 없습니다.');
         }
 
-        // 미디어(이미지) 맵 구성
-        var mediaMap = new Map();
-        if (doc.media && doc.media.length > 0) {
-          doc.media.forEach(function(m) {
-            try {
-              var blob = new Blob([m.bytes], { type: m.mimeType || 'image/png' });
-              var blobUrl = URL.createObjectURL(blob);
-              mediaMap.set(m.id.toLowerCase(), blobUrl);
-              var filename = m.id.split('/').pop().replace(/\.[^.]+$/, '').toLowerCase();
-              mediaMap.set(filename, blobUrl);
-            } catch (bErr) {}
-          });
-        }
-
-        // 섹션 내용을 A4 페이지 단위로 정규화
-        var PAGES = [];
-        doc.sections.forEach(function(sec) {
-          var paras = sec.paragraphs || [];
-          var tables = sec.tables || [];
-
-          if (sec.html) {
-            PAGES.push({
-              html: sec.html,
-              headers: sec.headers,
-              footers: sec.footers,
-              tables: tables,
-              placedMedia: sec.placedMedia
-            });
-          } else if (paras.length <= 16 && tables.length <= 1) {
-            PAGES.push({
-              paras: paras,
-              tables: tables,
-              headers: sec.headers,
-              footers: sec.footers,
-              placedMedia: sec.placedMedia
-            });
-          } else {
-            // 장문 섹션은 A4 15문단 단위로 분할하여 깔끔한 페이지네이션 제공
-            var chunkSize = 15;
-            for (var p = 0; p < paras.length; p += chunkSize) {
-              PAGES.push({
-                paras: paras.slice(p, p + chunkSize),
-                tables: (p === 0 ? tables : []),
-                headers: (p === 0 ? sec.headers : []),
-                footers: (p + chunkSize >= paras.length ? sec.footers : []),
-                placedMedia: (p === 0 ? sec.placedMedia : [])
-              });
-            }
-          }
-        });
-
-        if (PAGES.length === 0) {
-          PAGES.push({ paras: ['(본문 내용이 없는 빈 문서입니다)'], tables: [] });
-        }
-
-        totalPages = PAGES.length;
         totalPagesEl.textContent = totalPages;
         updateNavUI();
 
+        updateStatus('✨ 페이지 렌더링 중 (0 / ' + totalPages + ')...');
         var frag = document.createDocumentFragment();
         var sidebarFrag = document.createDocumentFragment();
 
-        PAGES.forEach(function(pageData, idx) {
-          var pNum = idx + 1;
-          var sheet = document.createElement('article');
+        for (var i = 0; i < totalPages; i++) {
+          var pageIndex = i + 1;
+          updateStatus('✨ 페이지 렌더링 중 (' + pageIndex + ' / ' + totalPages + ')...');
+
+          var svgStr = doc.renderPageSvg(i);
+
+          // 1. 페이지 시트 생성
+          var sheet = document.createElement('div');
           sheet.className = 'hwp-page-sheet';
-          sheet.id = 'hwp-page-' + pNum;
-          sheet.setAttribute('data-page', pNum);
-
-          // 1. 머리말
-          if (pageData.headers && pageData.headers.length > 0) {
-            var headerEl = document.createElement('div');
-            headerEl.className = 'hwp-page-header';
-            headerEl.textContent = pageData.headers.join(' | ');
-            sheet.appendChild(headerEl);
-          }
-
-          // 2. 본문 텍스트 또는 HTML
-          var headlineText = '';
-          if (pageData.html) {
-            var htmlContainer = document.createElement('div');
-            htmlContainer.innerHTML = pageData.html;
-            htmlContainer.querySelectorAll('script,iframe,object,embed,link,style').forEach(function(n) { n.remove(); });
-            sheet.appendChild(htmlContainer);
-            headlineText = htmlContainer.textContent.trim().slice(0, 24);
-          } else if (pageData.paras) {
-            pageData.paras.forEach(function(pText, pIdx) {
-              if (pIdx === 0 && !headlineText) headlineText = pText.trim().slice(0, 24);
-              var pEl = document.createElement('p');
-              pEl.className = 'hwp-para';
-              pEl.textContent = pText;
-              sheet.appendChild(pEl);
-            });
-          }
-
-          // 3. 표(Table) 렌더링
-          if (pageData.tables && pageData.tables.length > 0) {
-            pageData.tables.forEach(function(tblData) {
-              var tbl = document.createElement('table');
-              tbl.className = 'hwp-table';
-              var rows = tblData.cells || (tblData.rows || []).map(function(r) { return r.map(function(c) { return { text: c }; }); });
-              rows.forEach(function(row) {
-                var tr = document.createElement('tr');
-                row.forEach(function(cell) {
-                  var td = document.createElement('td');
-                  td.textContent = cell.text || '';
-                  if (cell.colSpan && cell.colSpan > 1) td.colSpan = cell.colSpan;
-                  if (cell.rowSpan && cell.rowSpan > 1) td.rowSpan = cell.rowSpan;
-                  tr.appendChild(td);
-                });
-                tbl.appendChild(tr);
-              });
-              sheet.appendChild(tbl);
-            });
-          }
-
-          // 4. 인라인 이미지
-          if (pageData.placedMedia && pageData.placedMedia.length > 0) {
-            pageData.placedMedia.forEach(function(pm) {
-              var imgUrl = mediaMap.get(pm.mediaId.toLowerCase());
-              if (imgUrl) {
-                var img = document.createElement('img');
-                img.className = 'hwp-image';
-                img.src = imgUrl;
-                img.alt = pm.alt || '문서 이미지';
-                sheet.appendChild(img);
-              }
-            });
-          }
-
-          // 5. 꼬리말
-          if (pageData.footers && pageData.footers.length > 0) {
-            var footerEl = document.createElement('div');
-            footerEl.className = 'hwp-page-footer';
-            footerEl.textContent = pageData.footers.join(' | ');
-            sheet.appendChild(footerEl);
-          }
-
-          // 6. 페이지 번호 배지
-          var badge = document.createElement('div');
-          badge.className = 'hwp-page-num-badge';
-          badge.textContent = pNum + ' / ' + totalPages;
-          sheet.appendChild(badge);
-
+          sheet.id = 'hwp-page-' + pageIndex;
+          sheet.setAttribute('data-page', pageIndex);
+          sheet.innerHTML = svgStr + '<div class="hwp-page-num-badge">' + pageIndex + ' / ' + totalPages + '</div>';
           frag.appendChild(sheet);
 
-          // 7. 사이드바 목차 항목
-          var displayHeadline = headlineText && headlineText.length >= 2 ? headlineText : (pNum + '페이지');
+          // 2. 목차 항목 텍스트 추출 (첫 번째 의미 있는 헤드라인 추출)
+          var pageTitle = pageIndex + '페이지';
+          var textMatches = svgStr.match(/<text[^>]*>([^<]+)<\/text>/g);
+          if (textMatches && textMatches.length > 0) {
+            for (var t = 0; t < textMatches.length; t++) {
+              var cleanTxt = textMatches[t].replace(/<[^>]+>/g, '').trim();
+              if (cleanTxt.length >= 2 && !/^[\d\s\.\,\-\/\:]+$/.test(cleanTxt)) {
+                pageTitle = cleanTxt.slice(0, 24);
+                break;
+              }
+            }
+          }
+
+          // 3. 사이드바 아이템 DOM 생성 (안전한 textContent 바인딩으로 ReferenceError 방지)
           var sidebarItem = document.createElement('div');
-          sidebarItem.className = 'hwp-sidebar-item' + (pNum === 1 ? ' active' : '');
-          sidebarItem.setAttribute('data-page', pNum);
-          sidebarItem.setAttribute('title', pNum + '페이지: ' + displayHeadline);
-          sidebarItem.innerHTML = '<span class="hwp-sidebar-badge">' + pNum + '</span><span class="hwp-sidebar-text">' + escapeHtml(displayHeadline) + '</span>';
+          sidebarItem.className = 'hwp-sidebar-item' + (pageIndex === 1 ? ' active' : '');
+          sidebarItem.setAttribute('data-page', pageIndex);
+          sidebarItem.setAttribute('title', pageIndex + '페이지: ' + pageTitle);
+
+          var badgeSpan = document.createElement('span');
+          badgeSpan.className = 'hwp-sidebar-badge';
+          badgeSpan.textContent = pageIndex;
+
+          var textSpan = document.createElement('span');
+          textSpan.className = 'hwp-sidebar-text';
+          textSpan.textContent = pageTitle;
+
+          sidebarItem.appendChild(badgeSpan);
+          sidebarItem.appendChild(textSpan);
 
           (function(pageTarget) {
             sidebarItem.addEventListener('click', function() {
               goToPage(pageTarget);
             });
-          })(pNum);
+          })(pageIndex);
 
           sidebarFrag.appendChild(sidebarItem);
-        });
+        }
 
         pagesContainer.appendChild(frag);
 
@@ -986,14 +847,12 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           observer.observe(el);
         });
 
-        // 정상 렌더링 완료 -> 로딩창 닫기 및 타이머 해제
-        clearTimeout(watchdogTimer);
+        // 렌더링 완료 후 로딩창 닫기
         loadingOverlay.style.display = 'none';
 
-        // 사용자 요청: 기본값은 정확히 100% 원본 맞춤으로 설정!
+        // 사용자 요청: 기본값은 정확히 100% 원본 크기!
         setZoom100();
       } catch (err) {
-        clearTimeout(watchdogTimer);
         console.error('HWP 로딩 오류:', err);
         showError('문서를 렌더링하는 중 오류가 발생했습니다: ' + (err.message || '알 수 없는 형식'));
       }
