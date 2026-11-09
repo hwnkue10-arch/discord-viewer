@@ -277,6 +277,10 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
       width: 100%;
       height: auto;
     }
+    /* @rhwp/core 버그 패치: 테이블 하단 및 헤더 셀 텍스트를 잘못 잘라먹는 cell-clip 무효화 */
+    .hwp-page-sheet g[clip-path*="cell-clip"] {
+      clip-path: none !important;
+    }
     .hwp-page-num-badge {
       position: absolute;
       bottom: 12px;
@@ -787,6 +791,11 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           await new Promise(function(resolve) { setTimeout(resolve, 0); });
 
           var svgStr = doc.renderPageSvg(i);
+
+          // @rhwp/core upstream 버그 해결: 테이블 하단 셀 및 반복 헤더 텍스트를 잘못 잘라먹는 셀 클립패스 무효화
+          if (typeof svgStr === 'string') {
+            svgStr = svgStr.replace(/clip-path="url\(#cell-clip-[^)]+\)"/g, '');
+          }
 
           // 1. 페이지 시트 생성 (SVG 벡터 원본 렌더링)
           var sheet = document.createElement('div');
