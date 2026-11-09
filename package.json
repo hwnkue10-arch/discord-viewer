@@ -1,7 +1,7 @@
 {
   "name": "discord-viewer",
   "version": "1.1.0",
-  "description": "Discord In-App Activity & Real-time Viewer (HTML, PDF, Markdown & PPTX)",
+  "description": "Discord In-App Activity & Real-time Viewer (HTML, PDF, Markdown, PPTX & HWP)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -17,7 +17,8 @@
     "html-renderer",
     "pdf-viewer",
     "markdown-viewer",
-    "pptx-viewer"
+    "pptx-viewer",
+    "hwp-viewer"
   ],
   "author": "",
   "license": "MIT",

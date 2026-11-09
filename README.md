@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>채팅방에 올라온 문서를 다운로드 없이 디스코드 내부 팝업(Activity)으로 즉시 열람하는 100% 무서버 뷰어</strong><br>
-  <code>HTML</code> • <code>PDF</code> • <code>Markdown (.md)</code> • <code>PowerPoint (.pptx)</code>
+  <code>HTML</code> • <code>PDF</code> • <code>Markdown (.md)</code> • <code>PowerPoint (.pptx)</code> • <code>한글 문서 (.hwp / .hwpx)</code>
 </p>
 
 <p align="center">
@@ -41,8 +41,11 @@
 | **PDF** | `.pdf` | **Mozilla PDF.js v3 + Heading Miner** | **170% 가독성 최적화 기본 배율** (170% ↔ 100% 원클릭 토글), **너비 맞춤 ↔ 쪽 맞춤 순환 토글**, **⟲ 반시계 90° 회전 (단축키 R)**, **📖 두 페이지씩 나란히 보기 (크롬 PDF 모티브 2쪽 보기)**, **도킹형 목차 사이드바**, **소제목 계층 트리(Outline)**, **페이지별 헤드라인 자동 추출(Text Mining)**, **페이지 번호 직접 입력 점프 (`[ 1 ] / 14`)**, 반응형 Canvas, 방향키 탐색 |
 | **Markdown** | `.md`, `.markdown` | **Marked + Highlight + Mermaid** | **☀️/🌙 원클릭 다크·라이트 모드 테마 전환**, GitHub 테마, GFM 표, 코드 블록 문법 강조 및 원클릭 복사, Mermaid 다이어그램 실시간 시각화 |
 | **PowerPoint** | `.pptx` | **OOXML Native Engine + JSZip** | 16:9 슬라이드 1:1 벡터 렌더링(Container Query), **100% 기본 화면 맞춤 (원클릭 100% 복귀)**, **도킹형 슬라이드 카드 목차**, **슬라이드 제목 자동 추출**, **슬라이드 번호 직접 입력 점프 (`[ 1 ] / 14`)**, **▶ 자동 슬라이드 쇼 (레이아웃 쉬프트 0px 고정 툴바)**, 선형 그라디언트(GradFill)·도형 완벽 복원 |
+| **한글 문서** | `.hwp`, `.hwpx` | **RHWP Rust + WebAssembly Vector Engine** | **구형 바이너리 한글 5.0(`.hwp`) & 최신 표준 OWPML(`.hwpx`) 통합 지원**, **A4 용지 실시간 무손실 벡터(SVG) 렌더링**, **한글 전용 웹폰트 폴백(바탕·명조·고딕·나눔)**, **`[◀]/[▶]` 페이지 이동 및 스크롤 위치 실시간 감지(IntersectionObserver)**, **`[ ➖ ]`/`100%`/`[ ➕ ]`/`[ ↔ 맞춤 ]` 줌 컨트롤**, **키보드 단축키(PageUp/Down, ←/→, +/-)**, **암호화/파싱 실패 시 원본 다운로드 자동 폴백** |
 
-> 💡 **전 포맷 공통 퀵 컨트롤 바:** 액티비티 상단에 새로고침, 닫기, **채널 내 최근 50개 업로드 문서 원클릭 전환 드롭다운**이 기본 탑재되어 있습니다.
+> 💡 **전 포맷 공통 퀵 헬퍼 바 (Floating Helper Bar):**
+> * **`[⬇️ 다운로드]` 버튼**: Discord Electron iframe의 다운로드 차단 샌드박스를 우회하여, UTF-8 원본 한글 파일명을 100% 보존한 상태로 사용자 PC의 기본 `다운로드` 폴더에 즉시 저장 (`/api/download` 프록시 연동).
+> * **`[📂 파일 목록]` 버튼**: 뷰어를 닫지 않고도 현재 채널에 업로드된 다른 문서(PDF, PPTX, HWP 등)로 0.1초 만에 즉시 전환하는 인터랙티브 모달 제공.
 
 ---
 
@@ -70,6 +73,7 @@ Slash (/view) & Context Menu                            0ms Real-Time Sync
 │  │ • HTMLRewriter        │ │ • Mozilla PDF.js     │ │ • SSRF Guard  │  │
 │  │ • Zero-Eval Compiler  │ │ • Marked + Mermaid   │ │ • 15MB Stream │  │
 │  │ • CSS Recursive Proxy │ │ • PptxViewJS (ZIP)   │ │ • MIME Allow  │  │
+│  │                       │ │ • RHWP WASM (HWP/X)  │ │               │  │
 │  └───────────────────────┘ └──────────────────────┘ └───────────────┘  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -85,10 +89,12 @@ Slash (/view) & Context Menu                            0ms Real-Time Sync
 * **SSRF Guard & Payload Limit:** 로컬호스트, 사설망 IP, 클라우드 메타데이터 주소 접근 원천 차단(403) 및 15MB 스트리밍 제한(413).
 
 ### 3. Client-Side Rendering Engines (Zero Server Overhead)
+* **RHWP Rust + WebAssembly Vector Engine (HWP & HWPX):** 브라우저 내에서 직접 구동되는 고성능 `@rhwp/core` WASM 엔진. 구형 OLE 바이너리(`.hwp`)와 최신 OWPML XML(`.hwpx`)을 무서버 환경에서 실시간 파싱하여 A4 용지 규격의 고품질 무손실 SVG 벡터로 렌더링. Noto Serif/Sans 및 나눔 한글 웹폰트 폴백 매핑, IntersectionObserver 기반 실시간 페이지 위치 추적, 반응형 자동 폭 맞춤 및 줌 컨트롤 탑재.
 * **Mozilla PDF.js & Smart Heading Miner:** 브라우저 Canvas 기반 고해상도(DPR 반영) 렌더링. 열람 시 가장 가독성이 뛰어난 **170% 기본 배율** 즉시 적용 및 100% 원클릭 전환, **너비 맞춤 ↔ 쪽 맞춤 순환 토글**, **⟲ 반시계 90° 회전 (단축키 R)**, **📖 두 페이지씩 나란히 보기(2쪽 보기)** 탑재. 파일 내장 목차(Outline) 트리 및 헤드라인 자동 추출 도킹형 사이드바 제공.
 * **Marked.js & Highlight.js:** GitHub Dark/Light 테마 원클릭 전환, 마크다운 파싱 및 프로그래밍 언어별 문법 강조.
 * **Mermaid.js:** 마크다운 내 플로우차트, 시퀀스, 클래스 다이어그램 실시간 SVG 시각화.
 * **OOXML Native Engine & JSZip:** 클라이언트 사이드에서 `.pptx` 압축 해제 후 슬라이드 XML과 미디어를 파싱하여 CSS Container Queries 기반 1:1 슬라이드 벡터 DOM 렌더링. 원클릭 100% 기본 화면 맞춤 복귀, 레이아웃 쉬프트가 완전히 제거된 고정 툴바의 ▶ 자동 슬라이드 쇼(3.5초 자동 넘김), 선형 그라디언트(GradFill) 정밀 복원, 카드형 슬라이드 내비게이터 제공.
+* **Universal Document Download Proxy (`/api/download`):** 디스코드 Electron 인앱 액티비티 iframe의 `<a download>` 차단 샌드박스를 완벽히 극복하기 위해, RFC 5987 표준의 `Content-Disposition: attachment; filename*=UTF-8''...` 응답 헤더와 `window.__discordOpenExternal` 브리지를 연동. 사용자 기본 브라우저를 통해 본래의 한글 파일명을 100% 보존한 채 OS `다운로드` 폴더로 즉시 저장.
 * **Smart Docked Navigation & Korean Filename Recovery:** 문서를 가리지 않고 메인 화면을 오른쪽으로 밀어내는 좌측 분할 사이드바, 원하는 페이지로 즉시 이동하는 `[ 1 ] / 14` 직접 번호 입력 점프, 디스코드의 언더바 파일명 치환을 원본 한글명으로 자동 복원하는 타이틀 리커버리 엔진 탑재.
 
 ### 4. Discord Bridge & Hybrid Development
@@ -100,12 +106,12 @@ Slash (/view) & Context Menu                            0ms Real-Time Sync
 ## 📖 봇 사용 방법 (Commands & Usage)
 
 ### 1️⃣ 마우스 우클릭으로 실행 (가장 추천 ⭐)
-1. 채팅방에 업로드된 문서 파일(`HTML`, `PDF`, `MD`, `PPTX`) 메시지를 **마우스 우클릭**
+1. 채팅방에 업로드된 문서 파일(`HTML`, `PDF`, `MD`, `PPTX`, `HWP/HWPX`) 메시지를 **마우스 우클릭**
 2. **앱(Apps)** → **`파일 바로보기`** 클릭
 3. 나에게만 보이는 비공개(Ephemeral) 메시지에서 **`[⚡ 디스코드 내부 팝업으로 즉시 실행]`** 또는 **`[🌐 인터넷 새 창으로 열기]`** 클릭!
 
 ### 2️⃣ 통합 슬래시 명령어: `/view` (채팅방 최근 문서 자동 감지)
-* 채팅창에 `/view` 를 입력하고 엔터를 누르면, 현재 채널의 최근 메시지에서 지원 문서(`.html`, `.pdf`, `.md`, `.pptx`)를 자동으로 찾아 실행 카드를 띄워줍니다.
+* 채팅창에 `/view` 를 입력하고 엔터를 누르면, 현재 채널의 최근 메시지에서 지원 문서(`.html`, `.pdf`, `.md`, `.pptx`, `.hwp`, `.hwpx`)를 자동으로 찾아 실행 카드를 띄워줍니다.
 * 최근 업로드된 파일이 여러 개라면 드롭다운 메뉴로 원하는 파일을 즉시 변경할 수 있습니다.
 
 ### 3️⃣ 특정 메시지 지정: `/view message: [메시지 링크]`
@@ -129,6 +135,7 @@ discord-viewer/
 │   │   ├── pdf.js            #  - PDF 뷰어 (Mozilla PDF.js + 목차/헤드라인 추출)
 │   │   ├── markdown.js       #  - Markdown 뷰어 (Marked + Highlight + Mermaid)
 │   │   ├── pptx.js           #  - PPTX 뷰어 (PptxViewJS + JSZip OOXML 엔진)
+│   │   ├── hwp.js            #  - HWP/HWPX 뷰어 (RHWP Rust+WASM 벡터 렌더러)
 │   │   ├── utils.js          #  - 포맷 감지 및 이스케이프 공통 유틸리티
 │   │   └── index.js          #  - 템플릿 통합 Export 허브
 │   ├── worker.js             # [서버리스 모드] Cloudflare Workers 메인 엔드포인트
