@@ -336,7 +336,6 @@ function buildRuntimeShimScript(discordClientId) {
   function wrap(u) {
     if (typeof u !== 'string') return u;
     if (u.startsWith('/api/') || u.startsWith('data:') || u.startsWith('blob:')) return u;
-    if (u.indexOf('cdn.jsdelivr.net') !== -1 || u.indexOf('cdnjs.cloudflare.com') !== -1) return u;
     var a = ext(u);
     if (!a) return u;
     try {
@@ -545,26 +544,9 @@ function buildRuntimeShimScript(discordClientId) {
     }
   }, true);
 
-  // 6. CSP 위반 감지 배너 (인라인 onclick 없이 순수 DOM 이벤트 바인딩)
+  // 6. CSP 위반 감지 (문서 열람 방해 배너 제거 및 콘솔 로깅 유지)
   document.addEventListener('securitypolicyviolation', function(e) {
     console.warn('[Discord CSP Blocked]', e.blockedURI, 'directive:', e.violatedDirective);
-    var banner = document.getElementById('discord-csp-warning-banner');
-    if (!banner) {
-      banner = document.createElement('div');
-      banner.id = 'discord-csp-warning-banner';
-      banner.style.cssText = 'position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:2147483646;background:rgba(239,68,68,0.92);backdrop-filter:blur(6px);color:white;padding:6px 14px;border-radius:20px;font-size:12px;font-family:sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;';
-      var textSpan = document.createElement('span');
-      textSpan.textContent = '⚠️ 일부 외부 기능이 디스코드 보안에 의해 차단되었습니다.';
-      var closeBtn = document.createElement('button');
-      closeBtn.style.cssText = 'background:white;color:#ef4444;border:none;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:bold;cursor:pointer;';
-      closeBtn.textContent = '닫기';
-      closeBtn.addEventListener('click', function() {
-        if (banner.parentNode) banner.parentNode.removeChild(banner);
-      });
-      banner.appendChild(textSpan);
-      banner.appendChild(closeBtn);
-      (document.body || document.documentElement).appendChild(banner);
-    }
   });
 })();
 </script>`;

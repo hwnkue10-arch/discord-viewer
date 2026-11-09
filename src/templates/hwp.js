@@ -732,15 +732,8 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
     async function loadDocument() {
       try {
         updateStatus('⚡ 한글 벡터 렌더링 엔진 로드 중...');
-        var wasmUrl = 'https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp_bg.wasm';
-
-        // 1. 고속 직렬 CDN 로드 시도 (1초 미만), 차단 환경 시 프록시 폴백
-        try {
-          await init({ module_or_path: wasmUrl });
-        } catch (initErr) {
-          console.warn('WASM 직렬 로드 실패, 프록시 경로로 폴백 시도:', initErr);
-          await init({ module_or_path: toProxyUrlClient(wasmUrl) });
-        }
+        var wasmUrl = toProxyUrlClient('https://cdn.jsdelivr.net/npm/@rhwp/core@0.8.7/rhwp_bg.wasm');
+        await init({ module_or_path: wasmUrl });
 
         updateStatus('📥 문서 파일 다운로드 중...');
         var proxyUrl = toProxyUrlClient(targetUrl);
