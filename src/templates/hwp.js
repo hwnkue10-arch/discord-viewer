@@ -782,18 +782,19 @@ function renderHwpViewer(fileTitle, serverOrigin, targetUrl, discordClientId) {
           sheet.innerHTML = svgStr + '<div class="hwp-page-num-badge">' + pageIndex + ' / ' + totalPages + '</div>';
           frag.appendChild(sheet);
 
-          // 2. 목차 항목 텍스트 추출 (첫 번째 의미 있는 헤드라인 텍스트 추출)
+          // 2. 목차 항목 텍스트 추출 (DOMParser 기반 안전 추출 - Regex 이스케이프 버그 원천 차단)
           var pageTitle = pageIndex + '페이지';
-          var textMatches = svgStr.match(/<text[^>]*>([^<]+)<\/text>/g);
-          if (textMatches && textMatches.length > 0) {
-            for (var t = 0; t < textMatches.length; t++) {
-              var cleanTxt = textMatches[t].replace(/<[^>]+>/g, '').trim();
-              if (cleanTxt.length >= 2 && !/^[\d\s\.\,\-\/\:]+$/.test(cleanTxt)) {
+          try {
+            var svgDoc = new DOMParser().parseFromString(svgStr, 'image/svg+xml');
+            var textElements = svgDoc.querySelectorAll('text');
+            for (var t = 0; t < textElements.length; t++) {
+              var cleanTxt = (textElements[t].textContent || '').trim();
+              if (cleanTxt.length >= 2 && !/^[\d\s.,\-:]+$/.test(cleanTxt) && cleanTxt.indexOf('/') === -1) {
                 pageTitle = cleanTxt.slice(0, 24);
                 break;
               }
             }
-          }
+          } catch (tErr) {}
 
           // 3. 사이드바 아이템 DOM 생성 (안전한 textContent 바인딩으로 ReferenceError/XSS 100% 방지)
           var sidebarItem = document.createElement('div');
